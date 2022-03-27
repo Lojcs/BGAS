@@ -1,7 +1,7 @@
 try:
 	import win32gui, pywinauto
 except Exception as e:
-	print("You don't have all the necessary module dependecies. Please install them.")
+	print("You don't have all the necessary module dependecies. Please install them by running 'pip install psutil, pywinauto'")
 
 import win32process, os, time, psutil
 try:
@@ -53,4 +53,5 @@ try:
 	foregroundscanner()
 except Exception as e:
 	print(e)
+	print("You might need to check if you have pssuspend64.exe in the folder.")
 	time.sleep(100)
