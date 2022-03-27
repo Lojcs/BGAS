@@ -1,3 +1,5 @@
+# TODO: Add gui, write suspend() and unsuspend(), 
+
 try:
 	import win32gui, pywinauto
 except Exception as e:
@@ -8,19 +10,29 @@ try:
 	with open("games.txt","r") as f:
 		suspendlist = list(filter(None, f.read().split("\n")))
 
-	def enumwindowscallback(windowcandidate, process):
-		if win32process.GetWindowThreadProcessId(windowcandidate)[1] == process:
-			global window
-			window = windowcandidate
+	runninggames = {} # {pid : [pname, script state, suspension state]}
 
-	def activescanner():
+	def processscanner():
 		processes =  win32process.EnumProcesses()
 		for process in processes:
 			if psutil.Process(process).name() in suspendlist:
-				win32gui.EnumWindows(enumwindowscallback,process)
-				return psutil.Process(process).name(), psutil.Process(process).pid, window
+				runninggames[psutil.Process(process).pid] = [psutil.Process(process).name(), 1, -1]
 
-	def foregroundscanner():
+	def foregroundcheck():
+		currentprocess = win32process.GetWindowThreadProcessId(win32gui.GetForegroundWindow())[1]
+		for game in runninggames:
+			if runninggames[game][1] == 1:
+				if currentprocess == game:
+					if runninggames[game][2] != 0:
+						unsuspend(game)
+				else:
+					if runninggames[game][2] != 1:
+						suspend(game)
+		
+	def unsuspend(pid):
+		os.system(".\pssuspend64 -r " + str(latchedpid[1]))
+
+
 		while True:
 			currentprocess = win32process.GetWindowThreadProcessId(win32gui.GetForegroundWindow())[1]
 			if currentprocess != latchedpid[1]:
@@ -49,7 +61,7 @@ try:
 						print()
 			time.sleep(0.5)
 
-	latchedpid = activescanner()
+	latchedpid = processscanner()
 	foregroundscanner()
 except Exception as e:
 	print(e)
