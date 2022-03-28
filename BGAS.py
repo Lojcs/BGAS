@@ -1,4 +1,5 @@
-# TODO: Add gui, write suspend() and unsuspend(), use window title in gui, add gui icon
+# TODO: use window title in gui, add gui icon, switch to game window, button shortcuts, layout improvements
+# BUG: kill button countdown, button colors, line 27 pid not found after killing
 
 try:
 	import win32gui, pywinauto
@@ -79,25 +80,26 @@ try:
 						if i == 0:
 							itemlist[i].config(text=f"{runninggames[pid][0]}")
 						elif i == 1:
-							print("Suspended" if runninggames[pid][1] else "Running")
-							itemlist[i].config(text=("Working" if runninggames[pid][1] else "Paused"), style=("redback.TButton" if runninggames[pid][1] else "greenback.TButton"))
+							itemlist[i].config(text=("Working" if runninggames[pid][1] else "Paused"), style=("greenback.TButton" if runninggames[pid][1] else "redback.TButton"))
 						elif i == 2:
 							itemlist[i].config(text=("Suspended" if runninggames[pid][2] else "Running"), style=("redback.TButton" if runninggames[pid][2] else "greenback.TButton"))
 						elif i == 4:
 							while psrunning == 1:
 								continue
-							if present[4] == 0:
+							if runninggames[pid][4] == 0:
 								guikill()
 					i += 1
-				state = runninggames[pid]
+				state = runninggames[pid][:]
 				# time.sleep(1/refresh)
 				time.sleep(0.5)
 		def guikill():
 			killbutton.config(style="wb.TButton")
 			t = 3
 			while t > 0:
-				t -= 1
 				killbutton.config(text=f"Game is closed, closing this window in {t}")
+				print(t)
+				t -= 1
+				time.sleep(1)
 			gui.destroy()
 		def guiclose():
 			if askokcancel(title="Close Suspender Window?", message="Suspender won't work until you restart the game or the script."):
@@ -118,7 +120,7 @@ try:
 		suspendbutton.pack()
 		aslabel = ttk.Label(gui, text = "Auto suspend", justify="center", font=("TkDefaultFont", 24))
 		aslabel.pack()
-		scriptbutton = ttk.Button(gui, text=("Working" if runninggames[pid][1] else "Paused"), style=("redback.TButton" if runninggames[pid][1] else "greenback.TButton"), command=pause)
+		scriptbutton = ttk.Button(gui, text=("Working" if runninggames[pid][1] else "Paused"), style=("greenback.TButton" if runninggames[pid][1] else "redback.TButton"), command=pause)
 		scriptbutton.pack()
 		killbutton = ttk.Button(gui, text="Kill game", style="bw.TButton", command=kill)
 		killbutton.pack()
