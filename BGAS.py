@@ -56,27 +56,14 @@ try:
 
 	def guimaker(pid):
 		def suspendtoggle():
-			global updatepause
-			while updaterunning == 1:
-				continue
-			updatepause = 1
 			if runninggames[pid][2] == 0:
 				suspend(pid)
 			if runninggames[pid][2] == 1:
 				unsuspend(pid)
 		def pause():
-			global updatepause
-			global updaterunning
-			print(updaterunning)
-			while updaterunning == 1:
-				print(3)
-				continue
-			updatepause = 1
 			if runninggames[pid][1] == 0:
-				print(7)
 				runninggames[pid][1] = 1
 			elif runninggames[pid][1] == 1:
-				print(8)
 				runninggames[pid][1] = 0
 		def kill():
 			if askokcancel(title=f"Kill {runninggames[pid][0]}?", message=f"Killing {runninggames[pid][0]} will result in loss of unsaved data."):
@@ -85,15 +72,9 @@ try:
 				guikill()
 		def updater(state):
 			while running == 1:
-				global updaterunning
 				i = 0
 				itemlist = [label, scriptbutton, suspendbutton]
-				if updatepause == 1:
-					continue
-				updaterunning = 1
 				for present in runninggames[pid]:
-					time.sleep(1)
-					print(present, state[i])
 					if present != state[i]:
 						if i == 0:
 							itemlist[i].config(text=f"{runninggames[pid][0]}")
@@ -109,9 +90,8 @@ try:
 								guikill()
 					i += 1
 				state = runninggames[pid]
-				updaterunning = 0
 				# time.sleep(1/refresh)
-				time.sleep(3)
+				time.sleep(0.5)
 		def guikill():
 			killbutton.config(style="wb.TButton")
 			t = 3
@@ -145,8 +125,6 @@ try:
 		state = runninggames[pid]
 		gui.protocol("WM_DELETE_WINDOW", guiclose)
 		running = 1
-		updaterunning = 0
-		updatepause = 0
 		updaterdaemon = threading.Thread(target=updater, args=[state], daemon=1).start()
 		gui.mainloop()
 		running = 0
