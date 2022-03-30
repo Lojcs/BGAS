@@ -1,5 +1,7 @@
 # TODO: use window title in gui, add gui icon, switch to game window, button shortcuts, layout improvements
-# BUG: kill button countdown, button colors, line 27 pid not found after killing
+# TODO: functions should aquire a lock before doing actions that might break others.
+# TODO: "Continue" button
+# BUG: button colors, line 27 pid not found after killing
 
 try:
 	import win32gui, pywinauto
@@ -26,10 +28,10 @@ try:
 			processes =  win32process.EnumProcesses()
 			for process in processes:
 				if psutil.Process(process).name() in suspendlist:
-					if psutil.Process(process).pid in runninggames:
-						runninggames[psutil.Process(process).pid][4] = 1
+					if process in runninggames:
+						runninggames[process][4] = 1
 					else:
-						runninggames[psutil.Process(process).pid] = [psutil.Process(process).name(), 1, -1, threading.Thread(target=guimaker, args=[psutil.Process(process).pid], daemon=1).start(), 1]
+						runninggames[process] = [psutil.Process(process).name(), 1, -1, threading.Thread(target=guimaker, args=[process], daemon=1).start(), 1]
 			psrunning = 0
 			time.sleep(10)
 
@@ -40,6 +42,7 @@ try:
 				if runninggames[game][1] == 1:
 					if currentprocess == game:
 						if runninggames[game][2] != 0:
+							print("ff")
 							unsuspend(game)
 					else:
 						if runninggames[game][2] != 1:
@@ -47,65 +50,60 @@ try:
 			time.sleep(0.5)
 		
 	def suspend(pid):
-		subprocess.run([".\pssuspend64", f"{pid}"])
+		subprocess.run([".\pssuspend64", f"{pid}"], capture_output=1)
+		print(f"Suspended {runninggames[pid][0]}")
 		runninggames[pid][2] = 1
 
 	def unsuspend(pid):
-		subprocess.run([".\pssuspend64", "-r", f"{pid}"])
+		subprocess.run([".\pssuspend64", "-r", f"{pid}"], capture_output=1)
+		print(f"Resumed {runninggames[pid][0]}")
 		runninggames[pid][2] = 0
 
 
 	def guimaker(pid):
 		def suspendtoggle():
+			print("sustog")
 			if runninggames[pid][2] == 0:
 				suspend(pid)
-			if runninggames[pid][2] == 1:
+			elif runninggames[pid][2] == 1:
 				unsuspend(pid)
 		def pause():
 			if runninggames[pid][1] == 0:
 				runninggames[pid][1] = 1
+				print(runninggames[pid][1])
 			elif runninggames[pid][1] == 1:
 				runninggames[pid][1] = 0
 		def kill():
 			if askokcancel(title=f"Kill {runninggames[pid][0]}?", message=f"Killing {runninggames[pid][0]} will result in loss of unsaved data."):
 				subprocess.run([".\pssuspend64", "-r", f"{pid}"])
 				subprocess.run(["taskkill", "/PID", f"{pid}", "/T", "/F"])
-				guikill()
+				gui.destroy()
 		def updater(state):
-			while running == 1:
-				i = 0
-				itemlist = [label, scriptbutton, suspendbutton]
-				for present in runninggames[pid]:
-					if present != state[i]:
-						if i == 0:
-							itemlist[i].config(text=f"{runninggames[pid][0]}")
-						elif i == 1:
-							itemlist[i].config(text=("Working" if runninggames[pid][1] else "Paused"), style=("greenback.TButton" if runninggames[pid][1] else "redback.TButton"))
-						elif i == 2:
-							itemlist[i].config(text=("Suspended" if runninggames[pid][2] else "Running"), style=("redback.TButton" if runninggames[pid][2] else "greenback.TButton"))
-						elif i == 4:
-							while psrunning == 1:
-								continue
-							if runninggames[pid][4] == 0:
-								guikill()
-					i += 1
-				state = runninggames[pid][:]
-				# time.sleep(1/refresh)
-				time.sleep(0.5)
-		def guikill():
-			killbutton.config(style="wb.TButton")
-			t = 3
-			while t > 0:
-				killbutton.config(text=f"Game is closed, closing this window in {t}")
-				print(t)
-				t -= 1
-				time.sleep(1)
-			gui.destroy()
+			i = 0
+			itemlist = [label, scriptbutton, suspendbutton]
+			for present in runninggames[pid]:
+				if present != state[i]:
+					if i == 0:
+						itemlist[i].config(text=f"{runninggames[pid][0]}")
+					elif i == 1:
+						itemlist[i].config(text=("Working" if runninggames[pid][1] else "Paused"), style=("greenback.TButton" if runninggames[pid][1] else "redback.TButton"))
+					elif i == 2:
+						itemlist[i].config(text=("Suspended" if runninggames[pid][2] else "Running"), style=("redback.TButton" if runninggames[pid][2] else "greenback.TButton"))
+					elif i == 4:
+						while psrunning == 1:
+							continue
+						if runninggames[pid][4] == 0:
+							gui.destroy()
+				i += 1
+			state = runninggames[pid][:]
+			time.sleep(1/refresh)
+			# time.sleep(0.5)
 		def guiclose():
 			if askokcancel(title="Close Suspender Window?", message="Suspender won't work until you restart the game or the script."):
 				runninggames[pid][3] = None
 				runninggames[pid][1] = 0
 				unsuspend(pid)
+				gui.destroy()
 		gui = tkinter.Tk()
 		style = ttk.Style()
 		style.configure("redback.TButton", background="red")
@@ -126,10 +124,8 @@ try:
 		killbutton.pack()
 		state = runninggames[pid]
 		gui.protocol("WM_DELETE_WINDOW", guiclose)
-		running = 1
-		updaterdaemon = threading.Thread(target=updater, args=[state], daemon=1).start()
+		threading.Thread(target=updater, args=[state], daemon=1).start()
 		gui.mainloop()
-		running = 0
 		time.sleep(1)
 
 	script = 1
