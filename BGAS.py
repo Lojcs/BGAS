@@ -1,7 +1,9 @@
-# TODO: use window title in gui, add gui icon, switch to game window, button shortcuts, layout improvements
+# TODO: use window title in gui, add gui icon
 # TODO: functions should aquire a lock before doing actions that might break others.
-# TODO: "Continue" button
-# BUG: line 27 pid not found after killing
+# TODO: Better layout, button shortcuts
+# TODO: Code returntogame
+# BUG: line 27 pid not found error after killing
+# BUG: line 27 pid not found error before killing
 
 try:
 	import win32gui, pywinauto
@@ -15,14 +17,12 @@ try:
 	with open("games.txt","r") as f:
 		suspendlist = list(filter(None, f.read().split("\n")))
 
-	runninggames = {} # {pid : [0: pname, 1: script state, 2: suspension state, 3: gui, 4: active, 5: updatelock]}
+	runninggames = {} # {pid : [0: pname, 1: script state, 2: suspension state, 3: [gui, reutrnbutton, suspendbutton], 4: active]}
 
 	refresh = getattr(win32api.EnumDisplaySettings(win32api.EnumDisplayDevices().DeviceName, -1), 'DisplayFrequency')
-
+	fgcpause = 0
 	def processscanner():
-		global psrunning
 		while script == 1:
-			psrunning = 1
 			for game in runninggames:
 				runninggames[game][4] = 0
 			processes =  win32process.EnumProcesses()
@@ -31,13 +31,19 @@ try:
 					if process in runninggames:
 						runninggames[process][4] = 1
 					else:
-						runninggames[process] = [psutil.Process(process).name(), 1, -1, threading.Thread(target=guimaker, args=[process], name=f"{psutil.Process(process).name()} window thread", daemon=1), 1, 0]
-						runninggames[process][3].start()
-			psrunning = 0
+						global fgcpause
+						fgcpause = 1
+						runninggames[process] = [psutil.Process(process).name(), 1, -1, [], 1]
+						threading.Thread(target=guimaker, args=[process], name=f"{psutil.Process(process).name()} window thread", daemon=1).start()
+			for game in runninggames:
+				if runninggames[game][4] == 0:
+					runninggames[game][3].destroy()
 			time.sleep(1)
 
 	def foregroundcheck():
 		while script == 1:
+			while fgcpause:
+				continue
 			currentprocess = win32process.GetWindowThreadProcessId(win32gui.GetForegroundWindow())[1]
 			for game in runninggames:
 				if runninggames[game][1] == 1:
@@ -51,109 +57,75 @@ try:
 			time.sleep(0.5)
 		
 	def suspend(pid):
-		while runninggames[pid][5]:
-			continue
+		runninggames[pid][3][2].config(text="Game\nSuspended", style="red.TButton")
 		subprocess.run([".\pssuspend64", f"{pid}"], capture_output=1)
-		print(f"Suspended {runninggames[pid][0]}")
-		runninggames[pid][5] = 1
 		runninggames[pid][2] = 1
-		runninggames[pid][5] = 0
+		print(f"Suspended {runninggames[pid][0]}")
 
 	def unsuspend(pid):
-		while runninggames[pid][5]:
-			continue
+		runninggames[pid][3][2].config(text="Game\nRunning", style="green.TButton")
 		subprocess.run([".\pssuspend64", "-r", f"{pid}"], capture_output=1)
-		print(f"Resumed {runninggames[pid][0]}")
-		runninggames[pid][5] = 1
 		runninggames[pid][2] = 0
-		runninggames[pid][5] = 0
+		print(f"Resumed {runninggames[pid][0]}")
 
 
 	def guimaker(pid):
+		def returntogame():
+			pass
 		def suspendtoggle():
 			if runninggames[pid][2] == 0:
 				suspend(pid)
 			elif runninggames[pid][2] == 1:
 				unsuspend(pid)
-		def pause():
+		def pausetoggle():
 			if runninggames[pid][1] == 0:
-				while runninggames[pid][5]:
-					continue
-				runninggames[pid][5] = 1
+				scriptbutton.config(text="Auto\nActive", style="green.TButton")
 				runninggames[pid][1] = 1
-				runninggames[pid][5] = 0
 				print(f"Resumed for {pid}")
 			elif runninggames[pid][1] == 1:
-				while runninggames[pid][5]:
-					continue
-				runninggames[pid][5] = 1
+				scriptbutton.config(text="Auto\nPaused", style="red.TButton")
 				runninggames[pid][1] = 0
-				runninggames[pid][5] = 0
 				print(f"Paused for {pid}")
 		def kill():
 			if askokcancel(title=f"Kill {runninggames[pid][0]}?", message=f"Killing {runninggames[pid][0]} will result in loss of unsaved data."):
 				subprocess.run([".\pssuspend64", "-r", f"{pid}"])
 				subprocess.run(["taskkill", "/PID", f"{pid}", "/T", "/F"])
 				gui.destroy()
-		def updater(past):
-			while True:
-				i = 0
-				itemlist = [label, scriptbutton, suspendbutton]
-				if past == runninggames[pid][:-1]:
-					continue
-				for present in runninggames[pid][:-1]:
-					while runninggames[pid][5]:
-						continue
-					if present != past[i]:
-						runninggames[pid][5] = 1
-						if i == 0:
-							itemlist[i].config(text=f"{runninggames[pid][0]}")
-						elif i == 1:
-							itemlist[i].config(text=("Active" if runninggames[pid][1] else "Paused"), style=("green.TButton" if runninggames[pid][1] else "red.TButton"))
-						elif i == 2:
-							itemlist[i].config(text=("Suspended" if runninggames[pid][2] else "Running"), style=("red.TButton" if runninggames[pid][2] else "green.TButton"))
-						elif i == 4:
-							while psrunning == 1:
-								continue
-							if runninggames[pid][4] == 0:
-								gui.destroy()
-						runninggames[pid][5] = 0
-					i += 1
-				past = runninggames[pid][:-1]
-				time.sleep(1/refresh)
-				# time.sleep(0.5)
 		def guiclose():
 			if askokcancel(title="Close Suspender Window?", message="Suspender won't work until you restart the game or the script."):
-				runninggames[pid][3] = None
+				runninggames[pid][3] = []
 				runninggames[pid][1] = 0
 				unsuspend(pid)
 				gui.destroy()
 		gui = tkinter.Tk()
 		style = ttk.Style()
 		style.theme_use("default")
-		style.configure("red.TButton", background="#EB4135", foreground="white", font=("TkDefaultFont", 16))
+		style.configure("red.TButton", background="#EB4135", foreground="white", font=("TkDefaultFont", 16), justify="center")
 		style.map("red.TButton", background=[("active", "#FF4A3C"), ("focus", "#B9372D")])
-		style.configure("green.TButton", background="#42A531", foreground="white", font=("TkDefaultFont", 16))
+		style.configure("green.TButton", background="#42A531", foreground="white", font=("TkDefaultFont", 16), justify="center")
 		style.map("green.TButton", background=[("active", "#5AC448"), ("focus", "#327B26")])
-		style.configure("bw.TButton", background="#2F1319", foreground="white", font=("TkDefaultFont", 16))
+		style.configure("bw.TButton", background="#2F1319", foreground="white", font=("TkDefaultFont", 16), justify="center")
 		style.map("bw.TButton", background=[("active", "#BF405F"), ("focus", "#903048")])
+		style.configure("main.TButton",  font=("TkDefaultFont", 24), justify="center")
 		# style.configure("wb.TButton", background="white", foreground="black", font=("TkDefaultFont", 16))
 		# style.map("wb.TButton", background=[("active", "#BF405F"), ("focus", "#BF405F")])
 		gui.title(f"{runninggames[pid][0]}\nSuspender")
 		gui.geometry("250x350+1000+500")
-		label = ttk.Label(gui, text = f"{runninggames[pid][0]}", justify="center", font=("TkDefaultFont", 24))
+		gui.resizable(0,0)
+		label = ttk.Label(gui, text = f"{runninggames[pid][0]}", justify="center", font=("TkDefaultFont", 20))
 		label.pack()
-		suspendbutton = ttk.Button(gui, text=("Suspended" if runninggames[pid][2] else "Running"), style=("red.TButton" if runninggames[pid][2] else "green.TButton"), command=suspendtoggle, default="active")
+		returnbutton = ttk.Button(gui, text=f"Return to\n{runninggames[pid][0]}", style="main.TButton", command=returntogame, default="active")
+		returnbutton.pack()
+		suspendbutton = ttk.Button(gui, text=("Game\nSuspended" if runninggames[pid][2] else "Game\nRunning"), style=("red.TButton" if runninggames[pid][2] else "green.TButton"), command=suspendtoggle)
 		suspendbutton.pack()
-		aslabel = ttk.Label(gui, text = "Auto suspend", justify="center", font=("TkDefaultFont", 24))
-		aslabel.pack()
-		scriptbutton = ttk.Button(gui, text=("Active" if runninggames[pid][1] else "Paused"), style=("green.TButton" if runninggames[pid][1] else "red.TButton"), command=pause)
+		scriptbutton = ttk.Button(gui, text=("Auto\nActive" if runninggames[pid][1] else "Auto\nPaused"), style=("green.TButton" if runninggames[pid][1] else "red.TButton"), command=pausetoggle)
 		scriptbutton.pack()
 		killbutton = ttk.Button(gui, text="Kill game", style="bw.TButton", command=kill)
 		killbutton.pack()
-		state = runninggames[pid]
 		gui.protocol("WM_DELETE_WINDOW", guiclose)
-		threading.Thread(target=updater, args=[state], name=f"{runninggames[pid][0]} update thread", daemon=1).start()
+		runninggames[pid][3] = [gui, returnbutton, suspendbutton]
+		global fgcpause
+		fgcpause = 0
 		gui.mainloop()
 		time.sleep(1)
 
