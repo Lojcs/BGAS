@@ -4,7 +4,7 @@ Little script I made that suspends games when their windows aren't in focus to d
 
 1. [Download and install Python 3.](https://www.python.org/downloads/) Make sure add to PATH is selected.
 
-2. Install dependecies by running `pip install psutil, pywinauto`
+2. Install dependecies by running `pip install psutil, pywinauto` on a powershell/cmd window.
 
 3. [Download PSTools Suite.](https://docs.microsoft.com/en-us/sysinternals/downloads/pstools)
 
@@ -17,3 +17,5 @@ Little script I made that suspends games when their windows aren't in focus to d
 # Usage
 
 Run BGAS.py or elevator.py (BGAS w/administrator privilages) after you start a game. I recommend using elevator.py since the script randomly doesn't work for me if I run it as user. You should try putting the game in a seperate virtual desktop if it appears behind windowed applications.
+
+[Reddit Comment Explaining More](https://www.reddit.com/r/pcgaming/comments/3cr573/comment/htx7pd5/?context=3)
