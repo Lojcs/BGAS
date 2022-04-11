@@ -4,9 +4,10 @@
 # TODO: Better layout, button shortcuts.
 # TODO: aggressive unsuspender
 # TODO: Use a class instead of lists in runninggames.
+# TODO: Script uses too much cpu
 # BUG: Secondary window has no styling.
 
-# Version 2.b1
+# Version 2.b2
 
 try:
 	import win32gui, pywinauto
@@ -29,7 +30,7 @@ try:
 		while script == 1:
 			for game in runninggames:
 				runninggames[game][4] = 0
-			processes =  win32process.EnumProcesses()
+			processes =  win32process.EnumProcesses() # TODO: Use delta for performance
 			try:
 				for process in processes:
 					if psutil.Process(process).name() in suspendlist:
@@ -43,12 +44,13 @@ try:
 							threading.Thread(target=guimaker, args=[process], name=f"{psutil.Process(process).name()} window thread", daemon=1).start()
 							runninggames[process][3][3] = pywinauto.Application().connect(process=os.getpid()).top_window()
 							fgcpause = 0
+							runninggames[process][3][1].config(text=f"Return to\n{runninggames[process][0]}", default="normal")
 			except psutil.NoSuchProcess:
 				pass
 			for game in runninggames:
 				if runninggames[game][4] == 0:
 					runninggames[game][3][0].destroy()
-			time.sleep(1)
+			time.sleep(5)
 
 	def foregroundcheck():
 		global fgcpause
@@ -68,7 +70,7 @@ try:
 							runninggames[game][3][3].set_focus()
 							suspend(game)
 			fgcpause = 0
-			time.sleep(0.01)
+			time.sleep(0.5)
 		
 	def suspend(pid):
 		runninggames[pid][3][2].config(text="Game\nSuspended", style="red.TButton")
@@ -89,7 +91,9 @@ try:
 			fgcpause = 1
 			unsuspend(pid)
 			if runninggames[pid][5] == None:
+				returnbutton.config(text="Finding window")
 				runninggames[pid][5] = pywinauto.Application().connect(process=pid).top_window()
+			returnbutton.config(text="Returning")
 			while True:
 				try:
 					runninggames[pid][5].set_focus()
@@ -99,12 +103,13 @@ try:
 					if "not responding" in str(e):
 						unsuspend(pid)
 					elif "no active desktop" in str(e):
-						unsuspend(pid)
+						continue
 				except pywinauto.controls.hwndwrapper.InvalidWindowHandle:
 					print("no handle")
 					continue
-			print(f"returned to {runninggames[pid][0]}")
 			fgcpause = 0
+			returnbutton.config(text=f"Return to\n{runninggames[pid][0]}")
+			print(f"returned to {runninggames[pid][0]}")
 		def suspendtoggle():
 			if runninggames[pid][2] == 0:
 				suspend(pid)
@@ -114,11 +119,11 @@ try:
 			if runninggames[pid][1] == 0:
 				scriptbutton.config(text="Auto\nActive", style="green.TButton")
 				runninggames[pid][1] = 1
-				print(f"Resumed for {pid}")
+				print(f"Script resumed for {runninggames[pid][0]}")
 			elif runninggames[pid][1] == 1:
 				scriptbutton.config(text="Auto\nPaused", style="red.TButton")
 				runninggames[pid][1] = 0
-				print(f"Paused for {pid}")
+				print(f"Script paused for {runninggames[pid][0]}")
 		def kill():
 			if askokcancel(title=f"Kill {runninggames[pid][0]}?", message=f"Killing {runninggames[pid][0]} will result in loss of unsaved data."):
 				subprocess.run([".\pssuspend64", "-r", f"{pid}"])
@@ -148,7 +153,7 @@ try:
 		gui.resizable(0,0)
 		label = ttk.Label(gui, text = f"{runninggames[pid][0]}", justify="center", font=("TkDefaultFont", 20))
 		label.pack()
-		returnbutton = ttk.Button(gui, text=f"Return to\n{runninggames[pid][0]}", style="main.TButton", command=returntogame, default="active")
+		returnbutton = ttk.Button(gui, text="Inıtialising", style="main.TButton", command=returntogame, default="disabled")
 		returnbutton.pack()
 		suspendbutton = ttk.Button(gui, text=("Game\nSuspended" if runninggames[pid][2] else "Game\nRunning"), style=("red.TButton" if runninggames[pid][2] else "green.TButton"), command=suspendtoggle)
 		suspendbutton.pack()
@@ -159,6 +164,7 @@ try:
 
 		gui.protocol("WM_DELETE_WINDOW", guiclose)
 		runninggames[pid][3] = [gui, returnbutton, suspendbutton, None]
+		print(f"Ui initialised for {runninggames[pid][0]}")
 		gui.mainloop()
 		time.sleep(1)
 
