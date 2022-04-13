@@ -1,3 +1,6 @@
+# BGAS Copyright (C) 2022  Lojcs
+# You should have received a copy of the GNU General Public License along with this program.  If not, see https://www.gnu.org/licenses.
+
 # TODO: use window title in gui, add gui icon
 # TODO: functions should aquire a lock before doing actions that might break others.
 # TODO: Auto switch back (?)
