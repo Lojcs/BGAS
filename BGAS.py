@@ -24,6 +24,10 @@ import win32process, sys, os, time, psutil, subprocess, tkinter, threading, win3
 from tkinter import ttk
 from tkinter.messagebox import askokcancel
 try:
+	win32gui.ShowWindow(pywinauto.Application().connect(process=os.getpid()).top_window().handle, win32con.SW_HIDE)
+except:
+	pass
+try:
 	if os.path.exists("games.txt"):
 		with open("games.txt","r") as f:
 			suspendlist = list(filter(None, f.read().split("\n")))
