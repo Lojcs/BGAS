@@ -1,3 +1,6 @@
+# BGAS Copyright (C) 2022  Lojcs
+# You should have received a copy of the GNU General Public License along with this program.  If not, see https://www.gnu.org/licenses.
+
 try:
 	import win32gui, pywinauto
 except Exception as e:
