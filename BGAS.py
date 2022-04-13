@@ -9,7 +9,9 @@
 # BUG: Auto switching back to gui window stops working work if you alt tab too fast after pressing the return button.
 # TODO: To add support for multiple windows, run only the mainloop in seperate thread, consider using mttkinter.
 
-# Version 2.b3
+# BUG: Script stalls if restarted while a game is running
+
+# Version 3.a1
 
 try:
 	import win32gui, pywinauto
@@ -76,6 +78,7 @@ try:
 					else:
 						if runninggames[game][2] != 1:
 							try:
+								win32gui.ShowWindow(runninggames[game][5].handle, win32con.SW_HIDE)
 								win32gui.ShowWindow(runninggames[game][3][3].handle, win32con.SW_SHOW)
 								win32gui.SetForegroundWindow(runninggames[game][3][3].handle)
 							except pywintypes.error as e: # TODO: Do something else here
@@ -101,10 +104,6 @@ try:
 		def returntogame():
 			global fgcpause
 			fgcpause = 1
-			a = pywinauto.application.WindowSpecification
-			if runninggames[pid][5] == None:
-				returnbutton.config(text="Finding window")
-				runninggames[pid][5] = pywinauto.Application().connect(process=pid).top_window()
 			returnbutton.config(text="Returning")
 			unsuspend(pid)
 			while True:
@@ -192,6 +191,7 @@ try:
 
 		gui.protocol("WM_DELETE_WINDOW", guiclose)
 		runninggames[pid][3] = [gui, returnbutton, suspendbutton, None]
+		runninggames[pid][5] = pywinauto.Application().connect(process=pid).top_window()
 		gui.mainloop()
 		time.sleep(1)
 
