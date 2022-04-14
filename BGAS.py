@@ -7,13 +7,14 @@
 # TODO: Use a class instead of lists in runninggames.
 # TODO: Script uses too much cpu (kinda solved)
 
+# TODO: Auto unsuspend when exiting the game.
 # TODO: Seamless mode
 # TODO: Use main window for config, option to minimize to tray
 # TODO: Set as service to autostart
 # TODO: Include dependecies
 # TODO: Remove pssuspend64.exe dependecy requirement
 
-# Version 2.0.5
+# Version 2.0.6
 
 try:
 	import win32gui, pywinauto
@@ -86,6 +87,8 @@ try:
 			self.returnbutton.config(text=f"Return to\n{runninggames[self.pid][0]}")
 			print(f"Returned to {runninggames[self.pid][0]}")
 		def suspendtoggle(self):
+			if runninggames[self.pid][1] == 1:
+				self.pausetoggle()
 			if runninggames[self.pid][2] == 0:
 				suspend(self.pid)
 			elif runninggames[self.pid][2] == 1:

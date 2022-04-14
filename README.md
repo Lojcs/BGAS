@@ -20,7 +20,7 @@ Little script I made that suspends games when their windows aren't in focus to d
 
 # Usage
 
-Run BGAS.py and minimize the window. When you launch a game a window will open after 60 seconds and your game will be suspended. You can use the return (enter) button to switch back to your game. If you alt+tab from the game the script will automatically minimize and suspend it for you. When you're done with the game just close it normally, the window will close on its own.
+Run BGAS.py and minimize the window. When you launch a game a window will open after 60 seconds and your game will be suspended. You can use the return (enter) button to switch back to your game. If you alt+tab from the game the script will automatically minimize and suspend it for you. When you're done with the game just close it normally, the window should close on its own. If it doesn't, try resuming the game by clicking the game suspension button.
 
 It should be compatible with most offline games, online games / games with anticheat might not like it tho. If it doesn't work on a game at all, try running the script as administrator by running administrator.py instead of BGAS.py.
 
