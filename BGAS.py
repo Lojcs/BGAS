@@ -13,7 +13,7 @@
 # TODO: Include dependecies
 # TODO: Remove pssuspend64.exe dependecy requirement
 
-# Version 2.0.3
+# Version 2.0.4
 
 try:
 	import win32gui, pywinauto
