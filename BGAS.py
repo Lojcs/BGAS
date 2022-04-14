@@ -13,7 +13,7 @@
 # TODO: Include dependecies
 # TODO: Remove pssuspend64.exe dependecy requirement
 
-# Version 2.0.4
+# Version 2.0.5
 
 try:
 	import win32gui, pywinauto
@@ -70,7 +70,7 @@ try:
 			unsuspend(self.pid)
 			while True:
 				try:
-					win32gui.ShowWindow(runninggames[self.pid][5].handle, win32con.SW_SHOW)
+					win32gui.ShowWindow(runninggames[self.pid][5].handle, win32con.SW_RESTORE)
 					win32gui.SetForegroundWindow(runninggames[self.pid][5].handle)
 					break
 				except RuntimeError as e:
