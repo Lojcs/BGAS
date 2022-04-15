@@ -13,8 +13,9 @@
 # TODO: Set as service to autostart
 # TODO: Include dependecies
 # TODO: Remove pssuspend64.exe dependecy requirement
+# BUG: Returning to game doesn't work reliably for sekiro
 
-# Version 2.0.7
+# Version 2.0.7.1
 
 try:
 	import win32gui, pywinauto
@@ -68,12 +69,10 @@ try:
 				self.returnbutton.config(text="Finding window")
 				runninggames[self.pid][5] = pywinauto.Application().connect(process=self.pid).top_window()
 			self.returnbutton.config(text="Returning")
-			while subprocess.Popen(f'tasklist /FI "PID eq {self.pid}" /FI "STATUS eq RUNNING"', stdout=subprocess.PIPE).stdout.read() == b"INFO: No tasks are running which match the specified criteria.\r\n":
-				unsuspend(self.pid)
-				time.sleep(0.1)
+			unsuspend(self.pid)
 			while True:
 				try:
-					win32gui.ShowWindow(runninggames[self.pid][5].handle, win32con.SW_RESTORE)
+					win32gui.ShowWindow(runninggames[self.pid][5].handle, win32con.SW_RESTORE) # TODO: (Maybe) Add alternative method using hide
 					win32gui.SetForegroundWindow(runninggames[self.pid][5].handle)
 					break
 				except RuntimeError as e:
