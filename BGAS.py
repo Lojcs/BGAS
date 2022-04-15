@@ -14,7 +14,7 @@
 # TODO: Include dependecies
 # TODO: Remove pssuspend64.exe dependecy requirement
 
-# Version 2.0.6
+# Version 2.0.7
 
 try:
 	import win32gui, pywinauto
@@ -68,7 +68,9 @@ try:
 				self.returnbutton.config(text="Finding window")
 				runninggames[self.pid][5] = pywinauto.Application().connect(process=self.pid).top_window()
 			self.returnbutton.config(text="Returning")
-			unsuspend(self.pid)
+			while subprocess.Popen(f'tasklist /FI "PID eq {self.pid}" /FI "STATUS eq RUNNING"', stdout=subprocess.PIPE).stdout.read() == b"INFO: No tasks are running which match the specified criteria.\r\n":
+				unsuspend(self.pid)
+				time.sleep(0.1)
 			while True:
 				try:
 					win32gui.ShowWindow(runninggames[self.pid][5].handle, win32con.SW_RESTORE)
@@ -201,7 +203,8 @@ try:
 		runninggames[process] = [psutil.Process(process).name(), 1, -1, [], 1, None]
 		while subprocess.Popen(f'tasklist /FI "PID eq {process}" /FI "STATUS eq RUNNING"', stdout=subprocess.PIPE).stdout.read() == b"INFO: No tasks are running which match the specified criteria.\r\n":
 			subprocess.run([".\pssuspend64", "-r", f"{process}"], capture_output=1)
-			print("Trying to resume process") # TODO: Ui, timeout and suggestion to kill 
+			print("Trying to resume process") # TODO: Ui, timeout and suggestion to kill
+			time.sleep(0.2)
 		threading.Thread(target=SuspenderWindow, args=[process], name=f"{psutil.Process(process).name()} window thread", daemon=1).start()
 		while runninggames[process][3] == []:
 			time.sleep(0.2)
