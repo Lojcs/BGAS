@@ -14,8 +14,9 @@
 # TODO: Include dependecies
 # TODO: Remove pssuspend64.exe dependecy requirement
 # BUG: Returning to game doesn't work reliably for sekiro
+# BUG: Relauching a game doesn't relaunch gui
 
-# Version 2.0.7.1
+# Version 2.0.7.2
 
 try:
 	import win32gui, pywinauto
