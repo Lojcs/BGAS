@@ -1,10 +1,13 @@
 # BGAS Copyright (C) 2022  Lojcs
 # You should have received a copy of the GNU General Public License along with this program.  If not, see https://www.gnu.org/licenses.
 
+# TODO: Don't start suspending until game window appearsZ
+
 # TODO: use window title in gui, add gui icon
 # TODO: functions should aquire a lock before doing actions that might break others.
 # TODO: Better layout
 # TODO: Use a class instead of lists in runninggames.
+# TODO: Use an orderer to lift fgcpause for individual functions
 # TODO: Script uses too much cpu (kinda solved)
 
 # TODO: Auto unsuspend when exiting the game.
@@ -13,10 +16,12 @@
 # TODO: Set as service to autostart
 # TODO: Include dependecies
 # TODO: Remove pssuspend64.exe dependecy requirement
-# BUG: Returning to game doesn't work reliably for sekiro
-# BUG: Relauching a game doesn't relaunch gui
 
-# Version 2.0.7.2
+# BUG: Returning to game doesn't work reliably for sekiro
+# BUG: Relauching a game doesn't relaunch gui (fixed i hope)
+# BUG: Script crashes after long idle time
+
+version = "2.0.8.0"
 
 try:
 	import win32gui, pywinauto
@@ -130,8 +135,9 @@ try:
 
 	refresh = getattr(win32api.EnumDisplaySettings(win32api.EnumDisplayDevices().DeviceName, -1), 'DisplayFrequency')
 	fgcpause = 0
+	safetodel = 1 # This is the lamest solution
 	def processscanner():
-		global fgcpause
+		global fgcpause, safetodel
 		while script == True:
 			for game in runninggames:
 				runninggames[game][4] = 0
@@ -145,9 +151,16 @@ try:
 							threading.Thread(target=lambda:windowmaker(process), daemon=1).start()
 			except psutil.NoSuchProcess:
 				pass
+			while fgcpause:
+				time.sleep(0.2)
+			fgcpause = 1
+			safetodel = 0
 			for game in runninggames:
 				if runninggames[game][4] == 0:
 					runninggames[game][3][0].destroy()
+					threading.Thread(target=safedeller, args=[game], name="safedeller thread", daemon=1).start()
+			fgcpause = 0
+			safetodel = 1
 			time.sleep(5)
 
 	def foregroundcheck():
@@ -190,10 +203,23 @@ try:
 		runninggames[pid][2] = 0
 		print(f"Resumed {runninggames[pid][0]}")
 
+	def safedeller(pid):
+		global fgcpause, safetodel
+		while not safetodel:
+			time.sleep(0.2)
+		while fgcpause: # TODO: Make this better
+			time.sleep(0.2)
+		fgcpause = 1
+		del runninggames[pid]
+		fgcpause = 0
+
+
+
 	def windowmaker(process):
 		runninggames[process] = [None, None, None, None, 1, None]
 		global fgcpause
 		if time.time() - scriptstart > 60:
+			# mainwindowitems[1] = ttk.Label(gui, text="runninggames[pid][0]")
 			if debug == 0:
 				print("Letting the game start up")
 				time.sleep(60)
@@ -241,12 +267,13 @@ try:
 	style.configure("main.TButton",  font=("TkDefaultFont", 22), justify="center")
 	# style.configure("wb.TButton", background="white", foreground="black", font=("TkDefaultFont", 16))
 	# style.map("wb.TButton", background=[("active", "#BF405F"), ("focus", "#BF405F")])
-	gui.title("Main Window")
+	gui.title(f"BGAS V{version} Main Window")
 	# gui.geometry("260x40+1000+500")
 	gui.resizable(0,0)
-	label = ttk.Label(gui, text = "BGAS RUNNING", justify="center", font=("TkDefaultFont", 25))
+	mainwindowitems = []
+	mainwindowitems.append(ttk.Label(gui, text = "BGAS RUNNING", justify="center", font=("TkDefaultFont", 25)))
 	# gui.bind("<Visibility>", rundelayed)
-	label.pack()
+	mainwindowitems[0].pack()
 	gui.protocol("WM_DELETE_WINDOW", forceclose)
 
 	scriptstart = time.time()
