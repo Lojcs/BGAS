@@ -21,7 +21,7 @@
 # BUG: Relauching a game doesn't relaunch gui (fixed i hope)
 # BUG: Script crashes after long idle time
 
-version = "2.0.8.0"
+version = "2.1.a1"
 
 try:
 	import win32gui, pywinauto
@@ -54,7 +54,7 @@ try:
 			self.returnbutton = ttk.Button(self, text="Initialising", style="main.TButton", command=lambda : threading.Thread(target=self.returntogame, daemon=1).start())
 			self.suspendbutton = ttk.Button(self, text=("Game\nSuspended" if runninggames[pid][2] else "Game\nRunning"), style=("red.TButton" if runninggames[pid][2] else "green.TButton"), command=self.suspendtoggle)
 			self.scriptbutton = ttk.Button(self, text=("Auto\nActive" if runninggames[pid][1] else "Auto\nPaused"), style=("green.TButton" if runninggames[pid][1] else "red.TButton"), command=self.pausetoggle)
-			self.killbutton = ttk.Button(self, text="Kill game", style="bw.TButton", command=self.kill)
+			self.killbutton = ttk.Button(self, text="Kill game", style="bw.TButton", command=self.killgame)
 			self.returnbutton.bind("<Return>", self.returnbuttonpress)
 			self.suspendbutton.bind("<Return>", self.suspendbuttonpress)
 			self.scriptbutton.bind("<Return>", self.scriptbuttonpress)
@@ -65,7 +65,7 @@ try:
 			self.scriptbutton.pack()
 			self.killbutton.pack()
 			self.returnbutton.focus_set()
-			self.protocol("WM_DELETE_WINDOW", self.guiclose)
+			self.protocol("WM_DELETE_WINDOW", self.closebuttonpressed)
 			runninggames[pid][3] = [self, self.returnbutton, self.suspendbutton, None]
 
 		def returntogame(self):
@@ -109,17 +109,22 @@ try:
 				self.scriptbutton.config(text="Auto\nPaused", style="red.TButton")
 				runninggames[self.pid][1] = 0
 				print(f"Script paused for {runninggames[self.pid][0]}")
-		def kill(self):
+		def killgame(self):
 			if askokcancel(title=f"Kill {runninggames[self.pid][0]}?", message=f"Killing {runninggames[self.pid][0]} will result in loss of unsaved data."):
 				subprocess.run([".\pssuspend64", "-r", f"{self.pid}"])
 				subprocess.run(["taskkill", "/PID", f"{self.pid}", "/T", "/F"])
 				self.destroy()
-		def guiclose(self):
+		
+		def closebuttonpressed(self):
 			if askokcancel(title="Close Suspender Window?", message="Suspender won't work until you restart the game or the script."):
 				unsuspend(self.pid)
 				runninggames[self.pid][3] = []
 				runninggames[self.pid][1] = 0
 				self.destroy()
+		def gameclosed(self): # TODO: GUI Indication
+			threading.Thread(target=safedeller, args=[self.pid], name="safedeller thread", daemon=1).start()
+			self.destroy()
+
 
 		def returnbuttonpress(self, event): # TODO: Add visual change
 			threading.Thread(target=self.returntogame, daemon=1).start()
@@ -128,9 +133,40 @@ try:
 		def scriptbuttonpress(self, event): # TODO: Add visual change
 			self.pausetoggle()
 		def killbuttonpress(self, event): # TODO: Add visual change
-			self.kill()
+			self.killgame()
 
+	class MonitoredGame:
+		def __init__(self, pid, pname, window, script, suspended, gui):
+			self.pid = pid
+			self.pname = pname
+			self.window = window
+			self.script = script
+			self.suspended = suspended
+			self.gui = gui
 
+	class SecureActor: # Use this instead of fgcpause
+		def __init__(self):
+			self.queue = {} # {id : function}
+			self.nextid = 1
+			self.completedid = 0
+			self.mainthread = None
+		def do(self, action, wait=0):
+			id = self.nextid
+			self.queue[id] = action
+			self.nextid += 1
+			if self.mainthread == None or self.mainthread.is_alive == False:
+				self.mainthread = threading.Thread(target=self.main, name="SecureActor main thread")
+			if wait == 1:
+				while self.completedid < id:
+					time.sleep(0.01) # Increase for less CPU usage
+		def main(self):
+			while len(self.queue) > 0:
+				self.queue[self.completedid + 1]()
+				self.completedid += 1
+
+							
+
+	monitoredgames = {} # {pid : MonitoredGame}
 	runninggames = {} # {pid : [0: pname, 1: script state, 2: suspension state, 3: [gui, reutrnbutton, suspendbutton, window], 4: active, 5: window]}
 
 	refresh = getattr(win32api.EnumDisplaySettings(win32api.EnumDisplayDevices().DeviceName, -1), 'DisplayFrequency')
@@ -139,9 +175,10 @@ try:
 	def processscanner():
 		global fgcpause, safetodel
 		while script == True:
-			for game in runninggames:
-				runninggames[game][4] = 0
 			processes =  win32process.EnumProcesses() # TODO: Use delta for performance
+			for game in monitoredgames:
+				if game not in processes:
+					monitoredgames[game].gameclosed()
 			try:
 				for process in processes:
 					if psutil.Process(process).name() in suspendlist:
