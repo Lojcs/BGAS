@@ -21,7 +21,7 @@
 # BUG: Relauching a game doesn't relaunch gui (fixed i hope)
 # BUG: Script crashes after long idle time
 
-version = "2.1.a1"
+version = "2.1.a2"
 
 try:
 	import win32gui, pywinauto
@@ -136,15 +136,17 @@ try:
 			self.killgame()
 
 	class MonitoredGame:
-		def __init__(self, pid, pname, window, script, suspended, gui):
+		def __init__(self, pid, window, focus, script, suspended, gui):
 			self.pid = pid
-			self.pname = pname
+			self.pname = psutil.Process(pid).name()
+			threading.Thread(target=SuspenderWindow, args=[pid], name=f"{psutil.Process(pid).name()} window thread", daemon=1).start()
 			self.window = window
-			self.script = script
+			self.focus = focus
+			self.script = 1
 			self.suspended = suspended
 			self.gui = gui
 
-	class SecureActor: # Use this instead of fgcpause
+	class SafeQueue: # https://stackoverflow.com/questions/45467163/how-to-pause-a-thread-python
 		def __init__(self):
 			self.queue = {} # {id : function}
 			self.nextid = 1
@@ -155,7 +157,7 @@ try:
 			self.queue[id] = action
 			self.nextid += 1
 			if self.mainthread == None or self.mainthread.is_alive == False:
-				self.mainthread = threading.Thread(target=self.main, name="SecureActor main thread")
+				self.mainthread = threading.Thread(target=self.main, name="SafeQueue main", daemon=1).start()
 			if wait == 1:
 				while self.completedid < id:
 					time.sleep(0.01) # Increase for less CPU usage
@@ -164,9 +166,9 @@ try:
 				self.queue[self.completedid + 1]()
 				self.completedid += 1
 
-							
-
 	monitoredgames = {} # {pid : MonitoredGame}
+	monitoredgamesqueue = SafeQueue()
+
 	runninggames = {} # {pid : [0: pname, 1: script state, 2: suspension state, 3: [gui, reutrnbutton, suspendbutton, window], 4: active, 5: window]}
 
 	refresh = getattr(win32api.EnumDisplaySettings(win32api.EnumDisplayDevices().DeviceName, -1), 'DisplayFrequency')
@@ -174,18 +176,21 @@ try:
 	safetodel = 1 # This is the lamest solution
 	def processscanner():
 		global fgcpause, safetodel
+		processcache = set([])
 		while script == True:
-			processes =  win32process.EnumProcesses() # TODO: Use delta for performance
+			currentprocesses =  set(win32process.EnumProcesses()) # TODO: Use delta for performance
+			newprocesses = currentprocesses.difference(processcache)
+			processcache = currentprocesses
 			for game in monitoredgames:
-				if game not in processes:
-					monitoredgames[game].gameclosed()
+				if game not in currentprocesses:
+					monitoredgames[game].gui.gameclosed()
 			try:
-				for process in processes:
+				for process in newprocesses:
 					if psutil.Process(process).name() in suspendlist:
-						if process in runninggames:
-							runninggames[process][4] = 1
+						if process in monitoredgames:
+							monitoredgames[process].focus = 1
 						else:
-							threading.Thread(target=lambda:windowmaker(process), daemon=1).start()
+							threading.Thread(target=lambda:monitoredgames[process] = MonitoredGame(process), name="Monitored Game init", daemon=1).start()
 			except psutil.NoSuchProcess:
 				pass
 			while fgcpause:
@@ -249,8 +254,6 @@ try:
 		fgcpause = 1
 		del runninggames[pid]
 		fgcpause = 0
-
-
 
 	def windowmaker(process):
 		runninggames[process] = [None, None, None, None, 1, None]
