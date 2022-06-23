@@ -17,11 +17,12 @@
 # TODO: Include dependecies
 # TODO: Remove pssuspend64.exe dependecy requirement
 
-# BUG: Returning to game doesn't work reliably for sekiro
-# BUG: Relauching a game doesn't relaunch gui (fixed i hope)
 # BUG: Script crashes after long idle time
 
-version = "2.1.a2"
+# BUG: Returning to game doesn't work reliably for sekiro
+# BUG: Doesn't work at all for chorus
+
+version = "2.1.a3"
 
 try:
 	import win32gui, pywinauto
@@ -43,17 +44,17 @@ try:
 		with open("games.txt", "w") as f:
 			f.write("Delete this line and enter the names of the executables you want the script to work on, one name each line") # TODO: Add GUI message
 
-	class SuspenderWindow(tkinter.Toplevel):
-		def __init__(self, pid):
-			self.pid = pid
+	class ManagerGui(tkinter.Toplevel):
+		def __init__(self, manager):
+			self.manager = manager
 			super().__init__()
-			self.title(f"{runninggames[pid][0]}\nSuspender")
+			self.title("Suspender initialising")
 			self.geometry("250x350")
+			self.label = ttk.Label(self, text = f"Initialising", justify="center", font=("TkDefaultFont", 20))
 			self.resizable(0,0)
-			self.label = ttk.Label(self, text = f"{runninggames[pid][0]}", justify="center", font=("TkDefaultFont", 20))
-			self.returnbutton = ttk.Button(self, text="Initialising", style="main.TButton", command=lambda : threading.Thread(target=self.returntogame, daemon=1).start())
-			self.suspendbutton = ttk.Button(self, text=("Game\nSuspended" if runninggames[pid][2] else "Game\nRunning"), style=("red.TButton" if runninggames[pid][2] else "green.TButton"), command=self.suspendtoggle)
-			self.scriptbutton = ttk.Button(self, text=("Auto\nActive" if runninggames[pid][1] else "Auto\nPaused"), style=("green.TButton" if runninggames[pid][1] else "red.TButton"), command=self.pausetoggle)
+			self.returnbutton = ttk.Button(self, text="Initialising", style="main.TButton", command=lambda: threading.Thread(target=self.returntogame, daemon=1).start(), state="disabled")
+			self.suspendbutton = ttk.Button(self, text="Initialising", style="red.TButton", command=self.suspendtoggle, state="disabled")
+			self.scriptbutton = ttk.Button(self, text="Initialising", style="red.TButton", command=self.pausetoggle, state="disabled")
 			self.killbutton = ttk.Button(self, text="Kill game", style="bw.TButton", command=self.killgame)
 			self.returnbutton.bind("<Return>", self.returnbuttonpress)
 			self.suspendbutton.bind("<Return>", self.suspendbuttonpress)
@@ -66,40 +67,22 @@ try:
 			self.killbutton.pack()
 			self.returnbutton.focus_set()
 			self.protocol("WM_DELETE_WINDOW", self.closebuttonpressed)
-			runninggames[pid][3] = [self, self.returnbutton, self.suspendbutton, None]
+			self.hwnd = win32gui.GetParent(self.winfo_id())
 
-		def returntogame(self):
-			global fgcpause
-			fgcpause = 1
-			if runninggames[self.pid][5] == None:
-				self.returnbutton.config(text="Finding window")
-				runninggames[self.pid][5] = pywinauto.Application().connect(process=self.pid).top_window()
-			self.returnbutton.config(text="Returning")
-			unsuspend(self.pid)
-			while True:
-				try:
-					win32gui.ShowWindow(runninggames[self.pid][5].handle, win32con.SW_RESTORE) # TODO: (Maybe) Add alternative method using hide
-					win32gui.SetForegroundWindow(runninggames[self.pid][5].handle)
-					break
-				except RuntimeError as e:
-					print(e)
-					if "not responding" in str(e):
-						unsuspend(self.pid)
-					elif "no active desktop" in str(e):
-						continue
-				except pywinauto.controls.hwndwrapper.InvalidWindowHandle:
-					print("no handle")
-					continue
-			fgcpause = 0
-			self.returnbutton.config(text=f"Return to\n{runninggames[self.pid][0]}")
-			print(f"Returned to {runninggames[self.pid][0]}")
+		def finalise_init(self):
+			self.title(f"{self.manager.pname}\nSuspender")
+			self.label.config(self, text = f"{self.manager.pname}", justify="center", font=("TkDefaultFont", 20))
+			self.returnbutton.config(text=f"Return to\n{self.manager.pname}", default="normal")
+			self.suspendbutton.config(text=("Game\nSuspended" if self.manager.suspended else "Game\nRunning"), style=("red.TButton" if self.manager.suspended else "green.TButton"))
+			self.scriptbutton.config(text=("Auto\nActive" if self.manager.script else "Auto\nPaused"), style=("green.TButton" if self.manager.script else "red.TButton"))
+		
 		def suspendtoggle(self):
 			if runninggames[self.pid][1] == 1:
 				self.pausetoggle()
 			if runninggames[self.pid][2] == 0:
-				suspend(self.pid)
+				suspend_old(self.pid)
 			elif runninggames[self.pid][2] == 1:
-				unsuspend(self.pid)
+				unsuspend_old(self.pid)
 		def pausetoggle(self):
 			if runninggames[self.pid][1] == 0:
 				self.scriptbutton.config(text="Auto\nActive", style="green.TButton")
@@ -117,14 +100,10 @@ try:
 		
 		def closebuttonpressed(self):
 			if askokcancel(title="Close Suspender Window?", message="Suspender won't work until you restart the game or the script."):
-				unsuspend(self.pid)
+				unsuspend_old(self.pid)
 				runninggames[self.pid][3] = []
 				runninggames[self.pid][1] = 0
 				self.destroy()
-		def gameclosed(self): # TODO: GUI Indication
-			threading.Thread(target=safedeller, args=[self.pid], name="safedeller thread", daemon=1).start()
-			self.destroy()
-
 
 		def returnbuttonpress(self, event): # TODO: Add visual change
 			threading.Thread(target=self.returntogame, daemon=1).start()
@@ -135,16 +114,56 @@ try:
 		def killbuttonpress(self, event): # TODO: Add visual change
 			self.killgame()
 
-	class MonitoredGame:
-		def __init__(self, pid, window, focus, script, suspended, gui):
+	class GameManager:
+		def __init__(self, pid):
+			self.script = 0
+			self.gui = ManagerGui(self)
 			self.pid = pid
 			self.pname = psutil.Process(pid).name()
-			threading.Thread(target=SuspenderWindow, args=[pid], name=f"{psutil.Process(pid).name()} window thread", daemon=1).start()
-			self.window = window
-			self.focus = focus
+			if subprocess.Popen(f'tasklist /FI "PID eq {pid}" /FI "STATUS eq RUNNING"', stdout=subprocess.PIPE).stdout.read() == b"INFO: No tasks are running which match the specified criteria.\r\n":
+				self.suspended = 1
+				print("Trying to resume process")
+				self.gui.label.config(text="Trying to resume process")
+				while subprocess.Popen(f'tasklist /FI "PID eq {pid}" /FI "STATUS eq RUNNING"', stdout=subprocess.PIPE).stdout.read() == b"INFO: No tasks are running which match the specified criteria.\r\n":
+					unsuspend(pid)
+					time.sleep(0.2) # TODO: Test and try to decrease this
+				suspend(pid)
+			else:
+				self.suspended = 0
+			self.focus = 0
+			self.gui.finalise_init()
 			self.script = 1
-			self.suspended = suspended
-			self.gui = gui
+			# self.window = window # Unused
+
+		def returntogame(self):
+			global fgcpause
+			fgcpause = 1
+			if runninggames[self.pid][5] == None:
+				self.returnbutton.config(text="Finding window")
+				runninggames[self.pid][5] = pywinauto.Application().connect(process=self.pid).top_window()
+			self.returnbutton.config(text="Returning")
+			unsuspend_old(self.pid)
+			while True:
+				try:
+					win32gui.ShowWindow(runninggames[self.pid][5].handle, win32con.SW_RESTORE) # TODO: (Maybe) Add alternative method using hide
+					win32gui.SetForegroundWindow(runninggames[self.pid][5].handle)
+					break
+				except RuntimeError as e:
+					print(e)
+					if "not responding" in str(e):
+						unsuspend_old(self.pid)
+					elif "no active desktop" in str(e):
+						continue
+				except pywinauto.controls.hwndwrapper.InvalidWindowHandle:
+					print("no handle")
+					continue
+			fgcpause = 0
+			self.returnbutton.config(text=f"Return to\n{runninggames[self.pid][0]}")
+			print(f"Returned to {runninggames[self.pid][0]}")
+
+		def gameclosed(self): # TODO: GUI Indication
+			threading.Thread(target=safedeller, args=[self.pid], name="safedeller thread", daemon=1).start()
+			self.destroy()
 
 	class SafeQueue: # https://stackoverflow.com/questions/45467163/how-to-pause-a-thread-python
 		def __init__(self):
@@ -166,8 +185,8 @@ try:
 				self.queue[self.completedid + 1]()
 				self.completedid += 1
 
-	monitoredgames = {} # {pid : MonitoredGame}
-	monitoredgamesqueue = SafeQueue()
+	managedgames = {} # {pid : MonitoredGame}
+	managedgamesqueue = SafeQueue()
 
 	runninggames = {} # {pid : [0: pname, 1: script state, 2: suspension state, 3: [gui, reutrnbutton, suspendbutton, window], 4: active, 5: window]}
 
@@ -181,28 +200,20 @@ try:
 			currentprocesses =  set(win32process.EnumProcesses()) # TODO: Use delta for performance
 			newprocesses = currentprocesses.difference(processcache)
 			processcache = currentprocesses
-			for game in monitoredgames:
+			for game in managedgames:
 				if game not in currentprocesses:
-					monitoredgames[game].gui.gameclosed()
-			try:
-				for process in newprocesses:
+					managedgames[game].gameclosed()
+			for process in newprocesses:
+				try:
 					if psutil.Process(process).name() in suspendlist:
-						if process in monitoredgames:
-							monitoredgames[process].focus = 1
+						if process in managedgames:
+							managedgames[process].focus = 1
 						else:
-							threading.Thread(target=lambda:monitoredgames[process] = MonitoredGame(process), name="Monitored Game init", daemon=1).start()
-			except psutil.NoSuchProcess:
-				pass
+							threading.Thread(target=lambda: managedgames.update({process: GameManager(process)}), name="Game Manager init", daemon=1).start()
+				except psutil.NoSuchProcess:
+					pass
 			while fgcpause:
 				time.sleep(0.2)
-			fgcpause = 1
-			safetodel = 0
-			for game in runninggames:
-				if runninggames[game][4] == 0:
-					runninggames[game][3][0].destroy()
-					threading.Thread(target=safedeller, args=[game], name="safedeller thread", daemon=1).start()
-			fgcpause = 0
-			safetodel = 1
 			time.sleep(5)
 
 	def foregroundcheck():
@@ -217,7 +228,7 @@ try:
 					if currentprocess == game:
 						if runninggames[game][2] != 0:
 							print("how did you do this")
-							unsuspend(game)
+							unsuspend_old(game)
 					else:
 						if runninggames[game][2] != 1:
 							try:
@@ -229,56 +240,41 @@ try:
 								win32gui.SetForegroundWindow(runninggames[game][3][3].handle)
 							except pywintypes.error as e: # TODO: Do something else here
 								print(e)
-							suspend(game)
+							suspend_old(game)
 			fgcpause = 0
 			time.sleep(0.3)
 		
-	def suspend(pid):
+
+	def suspend(pid, log = 1):
+		subprocess.run([".\pssuspend64", f"{pid}"], capture_output=1)
+		if log == 1:
+			print(f"Suspended {pid}")
+
+	def unsuspend(pid, log = 1):
+		subprocess.run([".\pssuspend64", "-r", f"{pid}"], capture_output=1)
+		if log == 1:
+			print(f"Unsuspended {pid}")
+
+	def suspend_old(pid):
 		runninggames[pid][3][2].config(text="Game\nSuspended", style="red.TButton")
 		subprocess.run([".\pssuspend64", f"{pid}"], capture_output=1)
 		runninggames[pid][2] = 1
 		print(f"Suspended {runninggames[pid][0]}")
 
-	def unsuspend(pid):
+	def unsuspend_old(pid):
 		runninggames[pid][3][2].config(text="Game\nRunning", style="green.TButton")
 		subprocess.run([".\pssuspend64", "-r", f"{pid}"], capture_output=1)
 		runninggames[pid][2] = 0
 		print(f"Resumed {runninggames[pid][0]}")
 
 	def safedeller(pid):
-		global fgcpause, safetodel
-		while not safetodel:
-			time.sleep(0.2)
+		global fgcpause
 		while fgcpause: # TODO: Make this better
 			time.sleep(0.2)
 		fgcpause = 1
 		del runninggames[pid]
 		fgcpause = 0
 
-	def windowmaker(process):
-		runninggames[process] = [None, None, None, None, 1, None]
-		global fgcpause
-		if time.time() - scriptstart > 60:
-			# mainwindowitems[1] = ttk.Label(gui, text="runninggames[pid][0]")
-			if debug == 0:
-				print("Letting the game start up")
-				time.sleep(60)
-		while fgcpause:
-			time.sleep(0.2)
-		fgcpause = 1
-		runninggames[process] = [psutil.Process(process).name(), 1, -1, [], 1, None]
-		while subprocess.Popen(f'tasklist /FI "PID eq {process}" /FI "STATUS eq RUNNING"', stdout=subprocess.PIPE).stdout.read() == b"INFO: No tasks are running which match the specified criteria.\r\n":
-			subprocess.run([".\pssuspend64", "-r", f"{process}"], capture_output=1)
-			print("Trying to resume process") # TODO: Ui, timeout and suggestion to kill
-			time.sleep(0.2)
-		threading.Thread(target=SuspenderWindow, args=[process], name=f"{psutil.Process(process).name()} window thread", daemon=1).start()
-		while runninggames[process][3] == []:
-			time.sleep(0.2)
-		runninggames[process][3][3] = pywinauto.Application().connect(process=os.getpid()).top_window()
-		fgcpause = 0
-		print(f"Ui initialised for {runninggames[process][0]}")
-		runninggames[process][3][1].config(text=f"Return to\n{runninggames[process][0]}", default="normal") # TODO: Disable all buttons and special text for other window initialising
-	
 	def cli():
 		while script == True:
 			if input("Type d for debug, else to exit:") == "d":
