@@ -27,7 +27,7 @@
 # BUG: Returning to game doesn't work reliably for sekiro
 # BUG: Doesn't work at all for chorus
 
-version = "2.1.b1"
+version = "2.1.b1.1"
 
 try:
 	import win32gui, pywinauto
