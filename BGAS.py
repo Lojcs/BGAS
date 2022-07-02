@@ -27,7 +27,7 @@
 # BUG: Returning to game doesn't work reliably for sekiro
 # BUG: Doesn't work at all for chorus
 
-version = "2.1.b1.1"
+version = "2.1.b1.2"
 
 try:
 	import win32gui, pywinauto
@@ -116,7 +116,7 @@ try:
 				win32gui.ShowWindow(self.handle, win32con.SW_HIDE)
 
 		def returnbuttonpress(self, event): # TODO: Add visual change
-			threading.Thread(target=self.returntogame, daemon=1).start()
+			threading.Thread(target=self.manager.returntogame, daemon=1).start()
 		def suspendbuttonpress(self, event): # TODO: Add visual change
 			self.suspendtoggle()
 		def scriptbuttonpress(self, event): # TODO: Add visual change
