@@ -27,7 +27,7 @@
 # BUG: Returning to game doesn't work reliably for sekiro
 # BUG: Doesn't work at all for chorus
 
-version = "2.1.b1.2"
+version = "2.1.b1.3"
 
 try:
 	import win32gui, pywinauto
@@ -182,6 +182,7 @@ try:
 			
 		def returntogame(self):
 			self.gui.returnbutton.config(text="Returning")
+			self.script = 0
 			self.unsuspend()
 			while True:
 				try:
@@ -202,6 +203,7 @@ try:
 			if debug == 1:
 				print(f"Returned to {self.pname}")
 			self.gui.returnbutton.config(text=f"Return to\n{self.pname}")
+			self.script = 1
 			# self.gui.returnbutton.config(text=f"{self.pname}\nin focus")
 
 		def gameclosed(self):
