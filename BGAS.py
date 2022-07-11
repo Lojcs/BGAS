@@ -3,7 +3,7 @@
 
 # BUG: If the game launches two processes with the same name the script doesn't work
 
-# TODO: Detect loading screens
+# TODO: Detect loading screens better
 # TODO: Option to mute instead of suspend
 # TODO: Indication when the game is supposed to be in focus
 # TODO: Use grid to put buttons next to each other
@@ -20,22 +20,21 @@
 # TODO: Use main window for config, option to minimize to tray
 # TODO: Set as service to autostart
 # TODO: Include dependecies
-# TODO: Remove pssuspend64.exe dependecy requirement
 
 # BUG: Script crashes after long idle time
 
 # BUG: Returning to game doesn't work reliably for sekiro
 # BUG: Doesn't work at all for chorus
 
-version = "2.1.b1.3"
+version = "2.1.b2"
 
 try:
-	import win32gui, pywinauto
+	import win32gui, pywinauto, psutil
 except Exception as e:
-	print("You don't have all the necessary module dependecies. Please install them by running 'pip install win32gui, pywinauto'")
+	print("You don't have all the necessary module dependecies. Please install them by running 'pip install win32gui, pywinauto, psutil'")
 	time.sleep(10)
 
-import win32process, sys, os, time, psutil, subprocess, tkinter, threading, win32api, win32con, pywintypes
+import win32process, sys, os, time, subprocess, tkinter, threading, win32api, win32con, pywintypes
 from tkinter import ttk
 from tkinter.messagebox import askokcancel, showerror
 try:
@@ -60,16 +59,19 @@ try:
 			self.resizable(0,0)
 			self.returnbutton = ttk.Button(self, text="Searching for\ngame window", style="main.TButton", command=lambda: threading.Thread(target=self.manager.returntogame, daemon=1).start(), state="disabled")
 			self.suspendbutton = ttk.Button(self, text="Initialising", style="red.TButton", command=self.suspendtoggle, state="disabled")
+			self.lsdbutton = ttk.Button(self, text="Initialising", style="red.TButton", command=self.lsdtoggle, state="disabled")
 			self.scriptbutton = ttk.Button(self, text="Initialising", style="red.TButton", command=self.scripttoggle, state="disabled")
 			self.killbutton = ttk.Button(self, text="Kill game", style="bw.TButton", command=self.manager.kill)
 			# mainwindowitems[f"{self.manager.pid} label"] = ttk.Label(gui, text = f"{self.manager.pname}", justify="center", font=("TkDefaultFont", 20))
 			self.returnbutton.bind("<Return>", self.returnbuttonpress)
 			self.suspendbutton.bind("<Return>", self.suspendbuttonpress)
+			self.lsdbutton.bind("<Return>", self.lsdbuttonpress)
 			self.scriptbutton.bind("<Return>", self.scriptbuttonpress)
 			self.killbutton.bind("<Return>", self.killbuttonpress)
 			self.label.pack()
 			self.returnbutton.pack()
 			self.suspendbutton.pack() # TODO: Use grid to put button next to each other
+			self.lsdbutton.pack()
 			self.scriptbutton.pack()
 			self.killbutton.pack()
 			self.returnbutton.focus_set()
@@ -88,6 +90,7 @@ try:
 		def init_thirdstage(self):
 			self.returnbutton.config(text=f"Return to\n{self.manager.pname}", state="active")
 			self.suspendbutton.config(text=("Game\nSuspended" if self.manager.suspended else "Game\nRunning"), style=("red.TButton" if self.manager.suspended else "green.TButton"), state="active")
+			self.lsdbutton.config(text=("Loading Detection\nActive" if self.manager.detectloading else "Loading Detection\nPaused"), style=("green.TButton" if self.manager.detectloading else "red.TButton"), state="active")
 			self.scriptbutton.config(text=("Auto\nActive" if self.manager.script else "Auto\nPaused"), style=("green.TButton" if self.manager.script else "red.TButton"), state="active")
 
 		def suspendtoggle(self):
@@ -97,6 +100,20 @@ try:
 				self.manager.suspend()
 			else:
 				self.manager.unsuspend()
+		def lsdtoggle(self):
+			if self.manager.detectloading == 0:
+				self.lsdbutton.config(text="Loading Detection\nActive", style="green.TButton")
+				self.manager.detectloading = 1
+				if self.manager.state == "background":
+					b = 0
+					for thread in threading.enumerate():
+						if f"{self.manager.pname} inbackground" == thread.name:
+							b = 1
+					if b == 0:
+						threading.Thread(target=self.manager.inbackground, name=f"{self.manager.pname} inbackground", daemon=1).start()
+			elif self.manager.detectloading == 1:
+				self.lsdbutton.config(text="Loading Detection\nPaused", style="red.TButton")
+				self.manager.detectloading = 0
 		def scripttoggle(self):
 			if self.manager.script == 0:
 				self.scriptbutton.config(text="Auto\nActive", style="green.TButton")
@@ -111,14 +128,14 @@ try:
 		
 		def closebuttonpressed(self):
 			if askokcancel(title="Close Suspender Window?", message="Suspender won't work until you restart the game or the script."):
-				self.manager.unsuspend()
-				self.manager.script = 0
-				win32gui.ShowWindow(self.handle, win32con.SW_HIDE)
+				self.manager.safeexit()
 
 		def returnbuttonpress(self, event): # TODO: Add visual change
 			threading.Thread(target=self.manager.returntogame, daemon=1).start()
 		def suspendbuttonpress(self, event): # TODO: Add visual change
 			self.suspendtoggle()
+		def lsdbuttonpress(self, event): # TODO: Add visual change
+			self.lsdtoggle()
 		def scriptbuttonpress(self, event): # TODO: Add visual change
 			self.scripttoggle()
 		def killbuttonpress(self, event): # TODO: Add visual change
@@ -131,6 +148,11 @@ try:
 			self.pid = pid
 			self.pname = psutil.Process(pid).name()
 			self.gui = ManagerGui(self)
+			self.detectloading = 1
+			self.loadingtimeout = 3
+			self.loadingtreshold = 40000
+			self.loadingafterchecks = 5
+			self.state = "unkown"
 			i = 0
 			while i < 20:
 				try:
@@ -159,10 +181,11 @@ try:
 					try:
 						self.windowhandle = pywinauto.Application().connect(process=self.pid).top_window().handle # TODO: Option to redo this manually in case it finds the wrong window
 						break
-					except Exception as e: # TODO: Make the exception more spesific
+					except Exception as e: # TODO: Make the exception more specific
 						print(e)
 					time.sleep(0.2)
-			self.script = self.suspended
+			# self.script = self.suspended
+			self.script = 1
 			self.gui.init_thirdstage()
 			
 		def suspend(self):
@@ -174,6 +197,72 @@ try:
 			self.gui.suspendbutton.config(text="Game\nRunning", style="green.TButton")
 			unsuspendpid(self.pid)
 			self.suspended = 0
+
+		def inforeground(self):
+			if self.suspended != 0:
+				print("how did you do this")
+				self.unsuspend()
+
+		def inbackground(self):
+			# game.gui.returnbutton.config(text=f"Return to\n{game.pname}")
+			if self.suspended != 1:
+				try:
+					try:
+						win32gui.ShowWindow(self.windowhandle, win32con.SW_MINIMIZE) # TODO: Do a better job
+					except:
+						pass
+					win32gui.ShowWindow(self.gui.handle, win32con.SW_SHOW)
+					win32gui.SetForegroundWindow(self.gui.handle)
+				except pywintypes.error as e: # TODO: Do something else here
+					print(e)
+			if self.detectloading == 1:
+				i = 0
+				while self.loadingafterchecks >= i and self.script == 1:
+					ii = 0
+					while (ii * 0.2) / self.loadingtimeout < i**2:
+						time.sleep(0.2)
+						if self.state != "background" or self.script == 0:
+							break
+						ii += 1
+					if self.state == "background" and self.detectloading == 1 and self.script == 1:
+						self.unsuspend()
+						i = self.pauseonloading(i)
+					else:
+						break
+					if self.state == "background" and self.script == 1:
+						win32gui.ShowWindow(self.windowhandle, win32con.SW_MINIMIZE) # TODO: Do a better job
+						self.suspend()
+						self.gui.lsdbutton.config(text="Loading Detection\nActive")
+					else:
+						break
+					i += 1
+			else:
+				self.suspend()
+
+		def pauseonloading(self, i = None): # TODO: Integrate this to inbackground # TODO: Make this better
+			self.gui.lsdbutton.config(text="Checking for\nloading screen")
+			adjustedthreshold = self.loadingtreshold * 0.5
+			ioread = psutil.Process(self.pid).io_counters()[2]
+			s = 0
+			ii = 0
+			while s * 0.5 < self.loadingtimeout and self.script == 1:
+				time.sleep(0.1)
+				if self.state != "background" or self.script == 0:
+					break
+				ii += 1
+				if ii < 5:
+					continue
+				ii = 0
+				ioreadnew = psutil.Process(self.pid).io_counters()[2]
+				print(ioreadnew - ioread)
+				if ioreadnew - ioread < adjustedthreshold:
+					s += 1
+				else:
+					self.gui.lsdbutton.config(text="Waiting for\nloading screen")
+					s = 0
+					i = 0
+				ioread = ioreadnew
+			return i
 
 		def kill(self):
 			if askokcancel(title=f"Kill {self.pname}?", message=f"Killing {self.pname} will result in loss of unsaved data."):
@@ -217,29 +306,33 @@ try:
 				time.sleep(1)
 			self.gui.destroy()
 
-	class SafeQueue: # https://stackoverflow.com/questions/45467163/how-to-pause-a-thread-python
-		def __init__(self):
-			self.queue = {} # {id : function}
-			self.nextid = 1
-			self.completedid = 0
-			self.mainthread = None
-		def do(self, action, wait=0):
-			id = self.nextid
-			self.queue[id] = action
-			self.nextid += 1
-			if self.mainthread == None or self.mainthread.is_alive == False:
-				self.mainthread = threading.Thread(target=self.main, name="SafeQueue main", daemon=1).start()
-			if wait == 1:
-				while self.completedid < id:
-					time.sleep(0.01) # Increase for less CPU usage
-		def main(self):
-			while len(self.queue) > 0:
-				self.queue[self.completedid + 1]()
-				self.completedid += 1
+		def safeexit(self):
+			self.script = 0
+			win32gui.ShowWindow(self.gui.handle, win32con.SW_HIDE)
+			time.sleep(0.5)
+			self.gui.destroy()
+
+	# class SafeQueue: # https://stackoverflow.com/questions/45467163/how-to-pause-a-thread-python
+	# 	def __init__(self):
+	# 		self.queue = {} # {id : function}
+	# 		self.nextid = 1
+	# 		self.completedid = 0
+	# 		self.mainthread = None
+	# 	def do(self, action, wait=0):
+	# 		id = self.nextid
+	# 		self.queue[id] = action
+	# 		self.nextid += 1
+	# 		if self.mainthread == None or self.mainthread.is_alive == False:
+	# 			self.mainthread = threading.Thread(target=self.main, name="SafeQueue main", daemon=1).start()
+	# 		if wait == 1:
+	# 			while self.completedid < id:
+	# 				time.sleep(0.01) # Increase for less CPU usage
+	# 	def main(self):
+	# 		while len(self.queue) > 0:
+	# 			self.queue[self.completedid + 1]()
+	# 			self.completedid += 1
 
 	managedgames = {} # {pid : MonitoredGame}
-
-	runninggames = {} # {pid : [0: pname, 1: script state, 2: suspension state, 3: [gui, reutrnbutton, suspendbutton, window], 4: active, 5: window]}
 
 	# refresh = getattr(win32api.EnumDisplaySettings(win32api.EnumDisplayDevices().DeviceName, -1), 'DisplayFrequency')
 	def processscanner():
@@ -267,22 +360,16 @@ try:
 			for game in managedgames.values():
 				if game.script == 1:
 					if currentwindow == game.windowhandle:
-						if game.suspended != 0:
-							print("how did you do this")
-							game.unsuspend()
+						game.state = "foreground"
+						threading.Thread(target=game.inforeground, name=f"{game.pname} inforeground", daemon=1).start()
 					else:
-						# game.gui.returnbutton.config(text=f"Return to\n{game.pname}")
-						if game.suspended != 1:
-							try:
-								try:
-									win32gui.ShowWindow(game.windowhandle, win32con.SW_MINIMIZE) # TODO: Do a better job
-								except:
-									pass
-								win32gui.ShowWindow(game.gui.handle, win32con.SW_SHOW)
-								win32gui.SetForegroundWindow(game.gui.handle)
-							except pywintypes.error as e: # TODO: Do something else here
-								print(e)
-							game.suspend()
+						game.state = "background"
+						b = 0
+						for thread in threading.enumerate():
+							if f"{game.pname} inbackground" == thread.name:
+								b = 1
+						if b == 0:
+							threading.Thread(target=game.inbackground, name=f"{game.pname} inbackground", daemon=1).start()
 				if game.active == 0:
 					deletionlist.append(game.pid)
 			for pid in deletionlist:
@@ -291,12 +378,12 @@ try:
 		
 
 	def suspendpid(pid):
-		subprocess.run([".\pssuspend64", f"{pid}"], capture_output=1)
+		psutil.Process(pid).suspend() # Discovered this by complete luck
 		if debug == 1:
 			print(f"Suspended {pid}")
 
 	def unsuspendpid(pid):
-		subprocess.run([".\pssuspend64", "-r", f"{pid}"], capture_output=1)
+		psutil.Process(pid).resume()
 		if debug == 1:
 			print(f"Unsuspended {pid}")
 
@@ -314,6 +401,17 @@ try:
 	# 	win32gui.ShowWindow(pywinauto.Application().connect(process=os.getpid()).top_window().handle, win32con.SW_HIDE)
 
 	def forceclose():
+		win32gui.ShowWindow(win32gui.GetParent(gui.winfo_id()), win32con.SW_HIDE)
+		for game in managedgames.values():
+			game.safeexit() # BUG: Script completely locks up if this runs in a different thread.
+			# threading.Thread(target=game.safeexit, name=f"{game.pname} safeexit").start()
+		b = 1
+		while b == 1:
+			b = 0
+			for thread in threading.enumerate():
+				if "safeexit" in thread.name:
+					b = 1
+			time.sleep(0.5)
 		os._exit(0)
 
 	gui = tkinter.Tk()
