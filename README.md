@@ -16,9 +16,13 @@ Little script I made that suspends games when their windows aren't in focus to d
 
 Run BGAS.py and minimize the main window. You can close that if you have to force quit out of BGAS. A managing window will appear when you launch a game. It will wait for the game to finish loading, then suspend it if it's in background. You can use the Return To Game button to switch back to your game. If you alt+tab from the game the script will automatically minimize and suspend it for you. If Loading Detection is active, the script will wait for the game to stop using the disk before suspending it, and resume it a couple times in background to make sure it's not loading anything. You can use the Suspension Toggle to manually suspend/unsuspend the game. When you're done with the game just close it normally, the window should close on its own. If it doesn't, try resuming the game by clicking the Suspension Toggle.
 
-It should be compatible with most offline games, online games / games with anticheat might not like it tho. If it doesn't work on a game at all, try running the script as administrator by running administrator.py instead of BGAS.py. Compatibility is still in progress.
+If mulitple windows launch for a single game, ignore the ones that don't work as they'll close on their own. This is caused by games that have multiple processes.
 
 The script works with multiple games at once and consecutively, so I recommend leaving the main window minimized instead of closing and relaunching it every time you want to use it.
+
+# Compatiblity:
+
+Should be compatible with most offline games, online games / games with anticheat might not like it tho. If the return button doesn't reliably work, try changing the game's window mode to borderless. If it doesn't work on a game at all, try running the script as administrator by running administrator.py instead of BGAS.py.
 
 Report issues on GitHub if you experience them.
 
