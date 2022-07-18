@@ -26,7 +26,7 @@
 # BUG: Returning to game doesn't work reliably for sekiro
 # BUG: Doesn't work at all for chorus
 
-version = "2.1.b2"
+version = "2.1.b3"
 
 try:
 	import win32gui, pywinauto, psutil
@@ -38,16 +38,84 @@ import win32process, sys, os, time, subprocess, tkinter, threading, win32api, wi
 from tkinter import ttk
 from tkinter.messagebox import askokcancel, showerror
 try:
-	win32gui.ShowWindow(pywinauto.Application().connect(process=os.getpid()).top_window().handle, win32con.SW_HIDE)
-except:
-	pass
-try:
-	if os.path.exists("games.txt"):
-		with open("games.txt","r") as f:
-			suspendlist = list(filter(None, f.read().split("\n")))
-	else:
-		with open("games.txt", "w") as f:
-			f.write("Delete this line and enter the names of the executables you want the script to work on, one name each line") # TODO: Add GUI message
+	class Interfaces:
+		def __init__(self):
+			self.debug = 0
+			self.iodebug = 0
+			self.script = 1
+
+			try:
+				self.clihandle = pywinauto.Application().connect(process=os.getpid()).top_window().handle
+				self.climode = 0
+				win32gui.ShowWindow(self.clihandle, win32con.SW_HIDE)
+			except:
+				self.climode = -1
+			threading.Thread(target=self.cli, name="Cli thread", daemon=1).start()
+
+			self.gui = tkinter.Tk()
+			self.init_style()
+			self.gui.title(f"BGAS V{version} Main Window")
+			# self.gui.geometry("260x40+1000+500")
+			self.gui.resizable(0,0)
+			self.gui_label = ttk.Label(self.gui, text = "BGAS RUNNING", font=("TkDefaultFont", 25))
+			self.gui_clibutton = ttk.Button(self.gui, text="Cli Off", style="main.TButton", command=self.clitoggle)
+			if self.climode == -1:
+				self.gui_clibutton.config(text="Cli On", state="disabled")
+			self.gui_label.pack()
+			self.gui_clibutton.pack()
+			self.gui.protocol("WM_DELETE_WINDOW", self.forceclose)
+
+		def init_style(self):
+			self.style = ttk.Style()
+			self.style.theme_use("default")
+			self.style.configure("red.TButton", background="#EB4135", foreground="white", font=("TkDefaultFont", 16), justify="center")
+			self.style.map("red.TButton", background=[("active", "#FF4A3C"), ("focus", "#B9372D")])
+			self.style.configure("green.TButton", background="#42A531", foreground="white", font=("TkDefaultFont", 16), justify="center")
+			self.style.map("green.TButton", background=[("active", "#5AC448"), ("focus", "#327B26")])
+			self.style.configure("bw.TButton", background="#2F1319", foreground="white", font=("TkDefaultFont", 16), justify="center")
+			self.style.map("bw.TButton", background=[("active", "#BF405F"), ("focus", "#903048")])
+			self.style.configure("main.TButton",  font=("TkDefaultFont", 22), justify="center")
+			# self.style.configure("wb.TButton", background="white", foreground="black", font=("TkDefaultFont", 16))
+			# self.style.map("wb.TButton", background=[("active", "#BF405F"), ("focus", "#BF405F")])
+			
+		def clitoggle(self):
+			if self.climode == 0:
+				win32gui.ShowWindow(self.clihandle, win32con.SW_SHOW)
+				self.climode = 1
+				self.gui_clibutton.config(text="Cli On")
+			elif self.climode == 1:
+				win32gui.ShowWindow(self.clihandle, win32con.SW_HIDE)
+				self.climode = 0
+				self.gui_clibutton.config(text="Cli Off")
+
+		def cli(self):
+			while self.script == True:
+				i = input("Type d to toggle debug messages, i to toggle loading detection i/o rates, p to toggle entire script (but the cli), r to switch to interpreter mode:\n")
+				if i == "d":
+					self.debug = 1 - self.debug
+					print(f"debug {self.debug}")
+				elif i == "i":
+					self.iodebug = 1 - self.iodebug
+					print(f"ioebug {self.iodebug}")
+				elif i == "p":
+					self.script = 1 - self.script # TODO: Make the code respond to this
+					print(f"script {self.script}")
+				elif i == "r": # TODO: Implement this
+					pass
+
+		def forceclose(self):
+			win32gui.ShowWindow(win32gui.GetParent(self.gui.winfo_id()), win32con.SW_HIDE)
+			for game in managedgames.values():
+				game.safeexit() # BUG: Script completely locks up if this runs in a different thread.
+				# threading.Thread(target=game.safeexit, name=f"{game.pname} safeexit").start()
+			b = 1
+			while b == 1:
+				b = 0
+				for thread in threading.enumerate():
+					if "safeexit" in thread.name:
+						b = 1
+				time.sleep(0.5)
+			os._exit(0)
 
 	class ManagerGui(tkinter.Toplevel):
 		def __init__(self, manager): # TODO: Make sure this is not overwriting anything
@@ -118,12 +186,12 @@ try:
 			if self.manager.script == 0:
 				self.scriptbutton.config(text="Auto\nActive", style="green.TButton")
 				self.manager.script = 1
-				if debug == 1:
+				if main.debug == 1:
 					print(f"Script resumed for {self.manager.pname}")
 			elif self.manager.script == 1:
 				self.scriptbutton.config(text="Auto\nPaused", style="red.TButton")
 				self.manager.script = 0
-				if debug == 1:
+				if main.debug == 1:
 					print(f"Script paused for {self.manager.pname}")
 		
 		def closebuttonpressed(self):
@@ -165,7 +233,7 @@ try:
 			self.gui.init_secondstage()
 			if subprocess.Popen(f'tasklist /FI "PID eq {pid}" /FI "STATUS eq RUNNING"', stdout=subprocess.PIPE).stdout.read() == b"INFO: No tasks are running which match the specified criteria.\r\n": # TODO: Differentiate between suspended and not responding
 				self.suspended = 1
-				if debug == 1:
+				if main.debug == 1:
 					print("Trying to resume process")
 				self.gui.returnbutton.config(text="Unresponsive\ntrying to resume")
 				while subprocess.Popen(f'tasklist /FI "PID eq {pid}" /FI "STATUS eq RUNNING"', stdout=subprocess.PIPE).stdout.read() == b"INFO: No tasks are running which match the specified criteria.\r\n":
@@ -254,7 +322,8 @@ try:
 					continue
 				ii = 0
 				ioreadnew = psutil.Process(self.pid).io_counters()[2]
-				print(ioreadnew - ioread)
+				if main.iodebug == 1:
+					print(ioreadnew - ioread)
 				if ioreadnew - ioread < adjustedthreshold:
 					s += 1
 				else:
@@ -279,17 +348,18 @@ try:
 					win32gui.SetForegroundWindow(self.windowhandle)
 					break
 				except RuntimeError as e:
-					if debug == 1:
+					if main.debug == 1:
 						print(e)
 					if "not responding" in str(e):
 						self.unsuspend()
 					elif "no active desktop" in str(e):
 						continue
 				except pywinauto.controls.hwndwrapper.InvalidWindowHandle: # TODO: Maybe show error window if this happens back to back?
-					if debug == 1:
+					if main.debug == 1:
 						print("Handle invalid")
+					self.windowhandle = pywinauto.Application().connect(process=self.pid).top_window().handle
 					continue
-			if debug == 1:
+			if main.debug == 1:
 				print(f"Returned to {self.pname}")
 			self.gui.returnbutton.config(text=f"Return to\n{self.pname}")
 			self.script = 1
@@ -312,32 +382,17 @@ try:
 			time.sleep(0.5)
 			self.gui.destroy()
 
-	# class SafeQueue: # https://stackoverflow.com/questions/45467163/how-to-pause-a-thread-python
-	# 	def __init__(self):
-	# 		self.queue = {} # {id : function}
-	# 		self.nextid = 1
-	# 		self.completedid = 0
-	# 		self.mainthread = None
-	# 	def do(self, action, wait=0):
-	# 		id = self.nextid
-	# 		self.queue[id] = action
-	# 		self.nextid += 1
-	# 		if self.mainthread == None or self.mainthread.is_alive == False:
-	# 			self.mainthread = threading.Thread(target=self.main, name="SafeQueue main", daemon=1).start()
-	# 		if wait == 1:
-	# 			while self.completedid < id:
-	# 				time.sleep(0.01) # Increase for less CPU usage
-	# 	def main(self):
-	# 		while len(self.queue) > 0:
-	# 			self.queue[self.completedid + 1]()
-	# 			self.completedid += 1
+	def retrievesuspendlist():
+		if os.path.exists("games.txt"):
+			with open("games.txt","r") as f:
+				return list(filter(None, f.read().split("\n")))
+		else:
+			with open("games.txt", "w") as f:
+				f.write("Delete this line and enter the names of the executables you want the script to work on, one name each line") # TODO: Add GUI message
 
-	managedgames = {} # {pid : MonitoredGame}
-
-	# refresh = getattr(win32api.EnumDisplaySettings(win32api.EnumDisplayDevices().DeviceName, -1), 'DisplayFrequency')
 	def processscanner():
 		processcache = set([])
-		while script == True:
+		while main.script == True:
 			currentprocesses =  set(win32process.EnumProcesses())
 			newprocesses = currentprocesses.difference(processcache)
 			processcache = currentprocesses
@@ -376,74 +431,25 @@ try:
 				del managedgames[pid]
 			time.sleep(0.2)
 		
-
 	def suspendpid(pid):
 		psutil.Process(pid).suspend() # Discovered this by complete luck
-		if debug == 1:
+		if main.debug == 1:
 			print(f"Suspended {pid}")
 
 	def unsuspendpid(pid):
 		psutil.Process(pid).resume()
-		if debug == 1:
+		if main.debug == 1:
 			print(f"Unsuspended {pid}")
 
-	def cli():
-		while script == True:
-			if input("Type d for debug, else to exit:") == "d":
-				global debug
-				debug = 1-debug
-				print(f"Debug {debug}")
-			else:
-				os._exit(0)
-
-	# def rundelayed(event):
-	# 	time.sleep(1)
-	# 	win32gui.ShowWindow(pywinauto.Application().connect(process=os.getpid()).top_window().handle, win32con.SW_HIDE)
-
-	def forceclose():
-		win32gui.ShowWindow(win32gui.GetParent(gui.winfo_id()), win32con.SW_HIDE)
-		for game in managedgames.values():
-			game.safeexit() # BUG: Script completely locks up if this runs in a different thread.
-			# threading.Thread(target=game.safeexit, name=f"{game.pname} safeexit").start()
-		b = 1
-		while b == 1:
-			b = 0
-			for thread in threading.enumerate():
-				if "safeexit" in thread.name:
-					b = 1
-			time.sleep(0.5)
-		os._exit(0)
-
-	gui = tkinter.Tk()
-	style = ttk.Style()
-	style.theme_use("default")
-	style.configure("red.TButton", background="#EB4135", foreground="white", font=("TkDefaultFont", 16), justify="center")
-	style.map("red.TButton", background=[("active", "#FF4A3C"), ("focus", "#B9372D")])
-	style.configure("green.TButton", background="#42A531", foreground="white", font=("TkDefaultFont", 16), justify="center")
-	style.map("green.TButton", background=[("active", "#5AC448"), ("focus", "#327B26")])
-	style.configure("bw.TButton", background="#2F1319", foreground="white", font=("TkDefaultFont", 16), justify="center")
-	style.map("bw.TButton", background=[("active", "#BF405F"), ("focus", "#903048")])
-	style.configure("main.TButton",  font=("TkDefaultFont", 22), justify="center")
-	# style.configure("wb.TButton", background="white", foreground="black", font=("TkDefaultFont", 16))
-	# style.map("wb.TButton", background=[("active", "#BF405F"), ("focus", "#BF405F")])
-	gui.title(f"BGAS V{version} Main Window")
-	# gui.geometry("260x40+1000+500")
-	gui.resizable(0,0)
-	mainwindowitems = {}
-	mainwindowitems["Label"] = ttk.Label(gui, text = "BGAS RUNNING", font=("TkDefaultFont", 25))
-	# mainwindowitems["Label"].grid(column=0, row=0)
-	# gui.bind("<Visibility>", rundelayed)
-	mainwindowitems["Label"].pack()
-	gui.protocol("WM_DELETE_WINDOW", forceclose)
+	suspendlist = retrievesuspendlist()
+	managedgames = {} # {pid : MonitoredGame}
+	# refresh = getattr(win32api.EnumDisplaySettings(win32api.EnumDisplayDevices().DeviceName, -1), 'DisplayFrequency')
 
 	scriptstart = time.time()
-	script = True
-	debug = 0
+	main = Interfaces()
 	threading.Thread(target=processscanner, name="processscanner thread", daemon=1).start()
 	threading.Thread(target=foregroundcheck, name="foregroundcheck thread", daemon=1).start()
-	threading.Thread(target=cli, name="cli thread", daemon=1).start()
-
-	gui.mainloop()
+	main.gui.mainloop()
 	
 except Exception as e:
 	if e != KeyboardInterrupt:
