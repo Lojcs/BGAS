@@ -25,7 +25,7 @@
 
 # BUG: Returning to game doesn't work reliably for sekiro
 
-version = "2.1.b5"
+version = "2.1.b5.1"
 print("Initialising")
 try:
 	import win32gui, pywinauto, psutil
@@ -190,6 +190,8 @@ try:
 			elif self.manager.detectloading == 1:
 				self.lsdbutton.config(text="Loading Detection\nPaused", style="red.TButton")
 				self.manager.detectloading = 0
+				if self.manager.state == "background" and self.manager.script == 1:
+					self.manager.inbackground()
 		def scripttoggle(self):
 			if self.manager.script == 0:
 				self.scriptbutton.config(text="Auto\nActive", style="green.TButton")
