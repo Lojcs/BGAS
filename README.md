@@ -4,7 +4,7 @@ Little script I made that suspends games when their windows aren't in focus to d
 
 1. [Download and install Python 3.](https://www.python.org/downloads/) Make sure add to PATH is selected.
 
-2. Install dependencies by running `pip install win32gui, pywinauto, psutil` on a powershell/cmd window.
+2. Install dependencies by running `pip install win32gui, pywinauto, psutil, pycaw` on a powershell/cmd window.
 
 3. Make a text file called games.txt in the BGAS folder and write the names of the executables you want the script to work on, one name each line. You can keep adding to this file if you install new games, but you need to restart the script for it to take effect.
 

@@ -1,7 +1,9 @@
 # BGAS Copyright (C) 2022  Lojcs
 # You should have received a copy of the GNU General Public License along with this program.  If not, see https://www.gnu.org/licenses.
 
-# TODO: Mute while waiting for loading screen
+# BUG: Manager Windows closing without countdown (Possibly fatal(?))
+# BUG: L252: popen method - some running proccesses are seen as unknown + some suspended processes are seen as running, psutil method - suspended processes are seen as running
+
 # TODO: Option to mute instead of suspend
 # TODO: Auto unsuspend when exiting the game.
 # TODO: Indication when the game is supposed to be in focus
@@ -23,12 +25,13 @@
 
 # BUG: Returning to game doesn't work reliably for sekiro
 
-version = "2.1.b4"
+version = "2.1.b5"
 print("Initialising")
 try:
 	import win32gui, pywinauto, psutil
+	import pycaw.pycaw as pycaw
 except Exception as e:
-	print("You don't have all the necessary module dependecies. Please install them by running 'pip install win32gui, pywinauto, psutil'")
+	print("You don't have all the necessary module dependecies. Please install them by running 'pip install win32gui, pywinauto, psutil, pycaw'")
 	time.sleep(10)
 
 import win32process, sys, os, time, subprocess, tkinter, threading, win32api, win32con, pywintypes, collections, ctypes
@@ -109,7 +112,7 @@ try:
 							try:
 								eval(i) # TODO: Test this
 							except Exception as e:
-								print(e)
+								print(f"Exception in cli eval : {e}")
 
 		def forceclose(self):
 			win32gui.ShowWindow(win32gui.GetParent(self.gui.winfo_id()), win32con.SW_HIDE)
@@ -129,9 +132,9 @@ try:
 		def __init__(self, manager): # TODO: Make sure this is not overwriting anything
 			self.manager = manager
 			super().__init__()
-			self.title(f"{self.manager.pname}\nSuspender Initilasing")
+			self.title(f"{self.manager.fname}\nSuspender Initilasing")
 			self.geometry("250x350")
-			self.label = ttk.Label(self, text = f"{self.manager.pname}", justify="center", font=("TkDefaultFont", 20))
+			self.label = ttk.Label(self, text = f"{self.manager.fname}", justify="center", font=("TkDefaultFont", 20))
 			self.resizable(0,0)
 			self.returnbutton = ttk.Button(self, text="Searching for\ngame window", style="main.TButton", command=lambda: threading.Thread(target=self.manager.returntogame, daemon=1).start(), state="disabled")
 			self.suspendbutton = ttk.Button(self, text="Initialising", style="red.TButton", command=self.suspendtoggle, state="disabled")
@@ -160,11 +163,11 @@ try:
 				pass
 
 		def init_secondstage(self):
-			self.title(f"{self.manager.pname}\nSuspender")
-			self.returnbutton.config(text="Window not found" if self.manager.windowhandle == None else f"Return to\n{self.manager.pname}", state="disabled" if self.manager.windowhandle == None else "active")
+			self.title(f"{self.manager.fname}\nSuspender")
+			self.returnbutton.config(text="Window not found" if self.manager.windowhandle == None else f"Return to\n{self.manager.fname}", state="disabled" if self.manager.windowhandle == None else "active")
 		
 		def init_thirdstage(self):
-			self.returnbutton.config(text=f"Return to\n{self.manager.pname}", state="active")
+			self.returnbutton.config(text=f"Return to\n{self.manager.fname}", state="active")
 			self.suspendbutton.config(text=("Game\nSuspended" if self.manager.suspended else "Game\nRunning"), style=("red.TButton" if self.manager.suspended else "green.TButton"), state="active")
 			self.lsdbutton.config(text=("Loading Detection\nActive" if self.manager.detectloading else "Loading Detection\nPaused"), style=("green.TButton" if self.manager.detectloading else "red.TButton"), state="active")
 			self.scriptbutton.config(text=("Auto\nActive" if self.manager.script else "Auto\nPaused"), style=("green.TButton" if self.manager.script else "red.TButton"), state="active")
@@ -178,15 +181,12 @@ try:
 				self.manager.unsuspend()
 		def lsdtoggle(self):
 			if self.manager.detectloading == 0:
+				if self.manager.script == 0:
+					self.scripttoggle()
 				self.lsdbutton.config(text="Loading Detection\nActive", style="green.TButton")
 				self.manager.detectloading = 1
-				if self.manager.state == "background":
-					b = 0
-					for thread in threading.enumerate():
-						if f"{self.manager.pname} inbackground" == thread.name:
-							b = 1
-					if b == 0:
-						threading.Thread(target=self.manager.inbackground, name=f"{self.manager.pname} inbackground", daemon=1).start()
+				if self.manager.state == "background" and self.manager.script == 1:
+					threading.Thread(target=self.manager.inbackground, name=f"{self.manager.pname} inbackground", daemon=1).start()
 			elif self.manager.detectloading == 1:
 				self.lsdbutton.config(text="Loading Detection\nPaused", style="red.TButton")
 				self.manager.detectloading = 0
@@ -195,12 +195,14 @@ try:
 				self.scriptbutton.config(text="Auto\nActive", style="green.TButton")
 				self.manager.script = 1
 				if main.debug == 1:
-					print(f"Script resumed for {self.manager.pname}")
+					print(f"{self.manager.pid} {self.manager.pname} : script resumed")
 			elif self.manager.script == 1:
+				if self.manager.detectloading == 1:
+					self.lsdtoggle()
 				self.scriptbutton.config(text="Auto\nPaused", style="red.TButton")
 				self.manager.script = 0
 				if main.debug == 1:
-					print(f"Script paused for {self.manager.pname}")
+					print(f"{self.manager.pid} {self.manager.pname} : script paused")
 		
 		def closebuttonpressed(self):
 			if askokcancel(title="Close Suspender Window?", message="Suspender won't work until you restart the game or the script."):
@@ -220,26 +222,32 @@ try:
 	class GameManager:
 		def __init__(self, pid):
 			try:
+				self.inittime = time.time()
 				self.active = 1
 				self.script = 0
 				self.pid = pid
 				self.pname = psutil.Process(pid).name()
+				self.fname = "-".join(list(filter(lambda x: (0 if x.lower() in ["win64","shipping", None] else 1), self.pname[:-4].split("-"))))
+				self.windowhandle = None
+				self.managevolume = 0
+				self.volumecontrol = None
+				self.muted = 0
 				self.safelyclosed = 0
 				self.gui = ManagerGui(self)
+				self.graceperiod = 20
 				self.detectloading = 1
 				self.loadingthreshold = 40000
 				self.loadinginterval = 0.2
 				self.loadingtimeout = 3
 				self.loadingafterchecks = 5
 				threading.Thread(target=self.adjustloadingthreashold, name=f"{self.pname} loading threshold adjuster", daemon=1).start()
-				self.state = "unkown"
-				self.windowhandle = None
+				self.state = "unknown"
 				i = 0
 				try:
 					self.windowhandle = pywinauto.Application().connect(process=self.pid).top_window().handle # TODO: Option to redo this manually in case it finds the wrong window
 				except Exception as e:
 					if main.debug == 1:
-						print(e)
+						print(f"Exception in {self.pid} {self.pname} window handle attempt initial : {e}")
 					if "No windows for that process could be found" in str(e):
 						pass
 					elif "PID" in str(e):
@@ -247,16 +255,16 @@ try:
 						raise
 				time.sleep(0.2)
 				self.gui.init_secondstage()
-				if subprocess.Popen(f'tasklist /FI "PID eq {pid}" /FI "STATUS eq RUNNING"', stdout=subprocess.PIPE).stdout.read() == b"INFO: No tasks are running which match the specified criteria.\r\n": # TODO: Differentiate between suspended and not responding
+				if subprocess.Popen(f'tasklist /FI "PID eq {self.pid}" /FI "STATUS eq SUSPENDED"', stdout=subprocess.PIPE).stdout.read() != b"INFO: No tasks are running which match the specified criteria.\r\n": # TODO: Differentiate between suspended and not responding
 					self.suspended = 1
 					if main.debug == 1:
-						print("Trying to resume process")
+						print(f"{self.pid} {self.pname} : trying to resume process")
 					self.gui.returnbutton.config(text="Unresponsive\ntrying to resume")
-					while psutil.Process(pid).status == "stopped":
+					while subprocess.Popen(f'tasklist /FI "PID eq {self.pid}" /FI "STATUS eq SUSPENDED"', stdout=subprocess.PIPE).stdout.read() != b"INFO: No tasks are running which match the specified criteria.\r\n":
 						unsuspendpid(pid)
 						time.sleep(0.2) # TODO: Test and try to decrease this
 					suspendpid(pid)
-					self.gui.returnbutton.config(text=f"Return to\n{self.pname}")
+					self.gui.returnbutton.config(text=f"Return to\n{self.fname}")
 				else:
 					self.suspended = 0
 				if self.windowhandle == None:
@@ -268,7 +276,7 @@ try:
 							break
 						except Exception as e:
 							if main.debug == 1:
-								print(e)
+								print(f"Exception in {self.pid} {self.pname} window handle attempt {i} : {e}")
 							if "PID" in str(e):
 								self.gameclosed()
 								raise
@@ -278,30 +286,101 @@ try:
 							i += 1
 							time.sleep(0.2)
 				# self.script = self.suspended
+				self.updatevolumecontrol()
 				self.script = 1
 				self.gui.init_thirdstage()
-			except (psutil.NoSuchProcess, ProcessLookupError):
+			except (psutil.NoSuchProcess, ProcessLookupError): # TODO: Does this actually happen here? If so do something else than passing
 				pass
 			except Exception as e:
 				if main.debug == 1:
-					print(e)
+					print(f"Exception in {self.pid} {self.pname} init : {e}")
 			
+		def adjustloadingthreashold(self):
+			try:
+				iorates = []
+				b = 0
+				t = time.time()
+				ioread = psutil.Process(self.pid).io_counters()[2]
+				time.sleep(self.loadinginterval + t - time.time())
+				while True and self.active == 1:
+					t = time.time()
+					ioreadnew = psutil.Process(self.pid).io_counters()[2]
+					iorates.append(ioreadnew-ioread)
+					if len(iorates) >= 10/self.loadinginterval:
+						top4 = collections.Counter(iorates).most_common(4)
+						for rate in top4:
+							if rate[0] != 0:
+								if rate[1] > 10 and rate[0] < 150000:
+									if main.debug == 1:
+										print(f"{self.pid} {self.pname} : loading threshold set to {rate[0]}")
+									self.loadingthreshold = rate[0]
+									b = 1
+									break
+						if b == 1:
+							break
+					ioread = ioreadnew
+					time.sleep(self.loadinginterval + t - time.time())
+			except (psutil.NoSuchProcess, ProcessLookupError):
+				self.gameclosed()
+
+		def updatevolumecontrol(self):
+			audiosessions = pycaw.AudioUtilities.GetAllSessions()
+			for session in audiosessions:
+				if session.Process and session.Process.pid == self.pid:
+					self.volumecontrol = session._ctl.QueryInterface(pycaw.ISimpleAudioVolume)
+					if self.volumecontrol.GetMute() == 0:
+						self.managevolume = 1 # BUG: This doesn't work
+
 		def suspend(self):
 			self.gui.suspendbutton.config(text="Game\nSuspended", style="red.TButton")
 			suspendpid(self.pid)
+			if main.debug == 1:
+				print(f"{self.pid} {self.pname} : suspended")
 			self.suspended = 1
 
 		def unsuspend(self):
 			self.gui.suspendbutton.config(text="Game\nRunning", style="green.TButton")
 			unsuspendpid(self.pid)
+			if main.debug == 1:
+				print(f"{self.pid} {self.pname} : unsuspended")
 			self.suspended = 0
 
+		def mute(self):
+			try:
+				self.volumecontrol.SetMute(1, None)
+				self.muted = 1
+				if main.debug == 1:
+					print(f"{self.pid} {self.pname} : muted")
+			except Exception as e:
+				if main.debug == 1:
+					print(f"Exception in {self.pid} {self.pname} mute : {e}")
+				self.updatevolumecontrol()
+
+		def unmute(self):
+			try:
+				self.volumecontrol.SetMute(0, None)
+				self.muted = 0
+				if main.debug == 1:
+					print(f"{self.pid} {self.pname} : unmuted")
+			except Exception as e:
+				if main.debug == 1:
+					print(f"Exception in {self.pid} {self.pname} unmute : {e}")
+				self.updatevolumecontrol()
+
 		def inforeground(self):
+			if self.volumecontrol == None:
+				self.updatevolumecontrol()
+			if self.muted == 1 and self.managevolume == 1:
+				self.unmute()
 			if self.suspended != 0:
 				print("how did you do this")
 				self.unsuspend()
 
 		def inbackground(self):
+			if self.volumecontrol == None:
+				self.updatevolumecontrol()
+			if self.muted == 0 and self.managevolume == 1:
+				self.mute()
 			# game.gui.returnbutton.config(text=f"Return to\n{game.pname}")
 			if self.suspended != 1:
 				try:
@@ -313,7 +392,7 @@ try:
 					win32gui.SetForegroundWindow(self.gui.handle)
 				except pywintypes.error as e: # TODO: Do something else here
 					if main.debug == 1:
-						print(e)
+						print(f"Exception in {self.pid} {self.pname} inbackground window actions : {e}")
 			if self.detectloading == 1:
 				i = 0
 				def absolutelydectectloadiong():
@@ -351,89 +430,74 @@ try:
 							time.sleep(self.loadinginterval + t - time.time())
 					else:
 						break
-					if absolutelydectectloadiong():
+					if absolutelydectectloadiong() and time.time()-self.inittime > self.graceperiod and time.time()-scriptstart > self.graceperiod:
 						win32gui.ShowWindow(self.windowhandle, win32con.SW_MINIMIZE)
 						self.suspend()
 						self.gui.lsdbutton.config(text="Loading Detection\nActive")
 					else:
 						break
 					i += 1
-			else:
+			elif self.suspended != 1:
 				self.suspend()
 
-		def adjustloadingthreashold(self):
-			try:
-				iorates = []
-				b = 0
-				t = time.time()
-				ioread = psutil.Process(self.pid).io_counters()[2]
-				time.sleep(self.loadinginterval + t - time.time())
-				while True and self.active == 1:
-					t = time.time()
-					ioreadnew = psutil.Process(self.pid).io_counters()[2]
-					iorates.append(ioreadnew-ioread)
-					if len(iorates) >= 10/self.loadinginterval:
-						top4 = collections.Counter(iorates).most_common(4)
-						for rate in top4:
-							if rate[0] != 0:
-								if rate[1] > 10 and rate[0] < 150000:
-									if main.debug == 1:
-										print(f"{self.pname} loading threshold is {rate[0]}")
-									self.loadingthreshold = rate[0]
-									b = 1
-									break
-						if b == 1:
-							break
-					ioread = ioreadnew
-					time.sleep(self.loadinginterval + t - time.time())
-			except (psutil.NoSuchProcess, ProcessLookupError):
-				self.gameclosed()
 		def returntogame(self):
 			self.gui.returnbutton.config(text="Returning")
-			self.script = 0
+			s = 0
+			if self.script == 1:
+				s = 1
+				self.script = 0
+			else:
+				if self.muted == 1 and self.managevolume == 1:
+					self.unmute()
 			self.unsuspend()
 			while True:
 				try:
 					win32gui.ShowWindow(self.windowhandle, win32con.SW_RESTORE) # TODO: (Maybe) Add alternative method using hide
 					win32gui.SetForegroundWindow(self.windowhandle)
 					break
-				except RuntimeError as e:
+				except Exception as e:
 					if main.debug == 1:
-						print(e)
+						print(f"Exception in {self.pid} {self.pname} returntogame window actions : {e}")
 					if "not responding" in str(e):
 						self.unsuspend()
 					elif "no active desktop" in str(e):
 						continue
-					elif "Invalid window handle" in str(e):
+					elif "Invalid window handle" in str(e): # TODO: Why are there two of these?
 						self.windowhandle = pywinauto.Application().connect(process=self.pid).top_window().handle
-				except pywinauto.controls.hwndwrapper.InvalidWindowHandle: # TODO: Maybe show error window if this happens back to back?
+				except pywinauto.controls.hwndwrapper.InvalidWindowHandle as e: # TODO: Maybe show error window if this happens back to back?
 					if main.debug == 1:
-						print("Handle invalid")
+						print(f"Exception in {self.pid} {self.pname} inbackground window actions : {e} (Handle Invalid)")
 					self.windowhandle = pywinauto.Application().connect(process=self.pid).top_window().handle
 			if main.debug == 1:
-				print(f"Returned to {self.pname}")
-			self.gui.returnbutton.config(text=f"Return to\n{self.pname}")
-			self.script = 1
+				print(f"{self.pid} {self.pname} : return complete")
+			self.gui.returnbutton.config(text=f"Return to\n{self.fname}")
+			if s == 1:
+				self.script = 1
 			# self.gui.returnbutton.config(text=f"{self.pname}\nin focus")
 
 		def kill(self):
-			if askokcancel(title=f"Kill {self.pname}?", message=f"Killing {self.pname} will result in loss of unsaved data."):
+			if askokcancel(title=f"Kill {self.pname}?", message=f"Killing {self.pname} ({self.pid}) will result in loss of unsaved data."):
+				if self.muted == 1 and self.managevolume == 1:
+					self.unmute()
 				subprocess.run(["taskkill", "/PID", f"{self.pid}", "/T", "/F"])
 				self.gameclosed()
 
-			
 		def gameclosed(self):
 			if self.safelyclosed == 0:
+				if main.debug == 1:
+					print(f"{self.pid} {self.pname} : gameclosed")
 				try:
 					self.unsuspend()
 				except:
 					pass
+				if main.debug == 1:
+					print(f"{self.pid} {self.pname} : gameclosed")
 				self.active = 0
 				self.script = 0
 				for widget in [self.gui.returnbutton, self.gui.suspendbutton, self.gui.lsdbutton, self.gui.scriptbutton]:
 					widget.config(state="disabled")
 				self.gui.label.config(text="Window closing")
-				for i in range(3,0,-1):
+				for i in range(3,0,-1):																							# BUG: Why doesn't this work??
 					self.gui.returnbutton.config(text=f"Window closing\nin {i} sec")
 					time.sleep(1)
 				self.gui.destroy()
@@ -441,9 +505,12 @@ try:
 
 		def safeexit(self):
 			self.script = 0
+			if self.muted == 1 and self.managevolume == 1:
+				self.unmute()
 			win32gui.ShowWindow(self.gui.handle, win32con.SW_HIDE)
 			time.sleep(0.5)
 			self.gui.destroy()
+			self.safelyclosed = 1
 
 	def retrievesuspendlist():
 		if os.path.exists("games.txt"):
@@ -472,7 +539,7 @@ try:
 					pass
 				except Exception as e:
 					if main.debug == 1:
-						print(e)
+						print(f"Exception in processscanner : {e}")
 			time.sleep(1)
 
 	def foregroundcheck():
@@ -483,16 +550,13 @@ try:
 			for game in managedgamescache.values():
 				if game.script == 1:
 					if currentwindow == game.windowhandle:
-						game.state = "foreground"
-						threading.Thread(target=game.inforeground, name=f"{game.pname} inforeground", daemon=1).start()
+						if game.state == "background" or game.state == "unknown":
+							game.state = "foreground"
+							threading.Thread(target=game.inforeground, name=f"{game.pname} {game.pid} inforeground", daemon=1).start()
 					else:
-						game.state = "background"
-						b = 0
-						for thread in threading.enumerate():
-							if f"{game.pname} inbackground" == thread.name:
-								b = 1
-						if b == 0:
-							threading.Thread(target=game.inbackground, name=f"{game.pname} inbackground", daemon=1).start()
+						if game.state == "foreground" or game.state == "unknown":
+							game.state = "background"
+							threading.Thread(target=game.inbackground, name=f"{game.pname} {game.pid} inbackground", daemon=1).start()
 				if game.active == 0:
 					deletionlist.append(game.pid)
 			for pid in deletionlist:
@@ -501,13 +565,9 @@ try:
 		
 	def suspendpid(pid):
 		psutil.Process(pid).suspend() # Discovered this by complete luck
-		if main.debug == 1:
-			print(f"Suspended {pid}")
 
 	def unsuspendpid(pid):
 		psutil.Process(pid).resume()
-		if main.debug == 1:
-			print(f"Unsuspended {pid}")
 
 	suspendlist = retrievesuspendlist()
 	managedgames = {} # {pid : MonitoredGame}
@@ -521,5 +581,5 @@ try:
 	
 except Exception as e:
 	if e != KeyboardInterrupt:
-		print(e)
+		print(f"Exception in entire script : {e}")
 		time.sleep(10)
