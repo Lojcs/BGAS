@@ -1,7 +1,6 @@
 # BGAS Copyright (C) 2022  Lojcs
 # You should have received a copy of the GNU General Public License along with this program.  If not, see https://www.gnu.org/licenses.
 
-# BUG: Manager Windows closing without countdown (Possibly fatal(?))
 # BUG: L252: popen method - some running proccesses are seen as unknown + some suspended processes are seen as running, psutil method - suspended processes are seen as running
 
 # TODO: Option to mute instead of suspend
@@ -21,11 +20,11 @@
 # TODO: Set as service to autostart
 # TODO: Include dependecies
 
-# BUG: Script crashes after long idle time
+# BUG: Script crashes after long idle time (Possibly solved)
 
 # BUG: Returning to game doesn't work reliably for sekiro
 
-version = "2.1.b5.1"
+version = "2.1.0"
 print("Initialising")
 try:
 	import win32gui, pywinauto, psutil
@@ -61,9 +60,9 @@ try:
 			# self.gui.geometry("260x40+1000+500")
 			self.gui.resizable(0,0)
 			self.gui_label = ttk.Label(self.gui, text = "BGAS RUNNING", font=("TkDefaultFont", 25))
-			self.gui_clibutton = ttk.Button(self.gui, text="Cli Debug Off", command=self.clitoggle)
+			self.gui_clibutton = ttk.Button(self.gui, text="Debug Cli Off", command=self.clitoggle)
 			if self.climode == -1:
-				self.gui_clibutton.config(text="Cli Debug On", state="disabled")
+				self.gui_clibutton.config(text="Debug Cli On", state="disabled")
 			self.gui_label.pack()
 			self.gui_clibutton.pack()
 			self.gui.protocol("WM_DELETE_WINDOW", self.forceclose)
@@ -85,11 +84,11 @@ try:
 			if self.climode == 0:
 				win32gui.ShowWindow(self.clihandle, win32con.SW_SHOW)
 				self.climode = 1
-				self.gui_clibutton.config(text="Cli Debug On")
+				self.gui_clibutton.config(text="Debug Cli On")
 			elif self.climode == 1:
 				win32gui.ShowWindow(self.clihandle, win32con.SW_HIDE)
 				self.climode = 0
-				self.gui_clibutton.config(text="Cli Debug Off")
+				self.gui_clibutton.config(text="Debug Cli Off")
 
 		def cli(self):
 			while True:
@@ -132,7 +131,7 @@ try:
 		def __init__(self, manager): # TODO: Make sure this is not overwriting anything
 			self.manager = manager
 			super().__init__()
-			self.title(f"{self.manager.fname}\nSuspender Initilasing")
+			self.title(f"{self.manager.fname} Suspender Initilasing")
 			self.geometry("250x350")
 			self.label = ttk.Label(self, text = f"{self.manager.fname}", justify="center", font=("TkDefaultFont", 20))
 			self.resizable(0,0)
@@ -163,7 +162,7 @@ try:
 				pass
 
 		def init_secondstage(self):
-			self.title(f"{self.manager.fname}\nSuspender")
+			self.title(f"{self.manager.fname} Suspender")
 			self.returnbutton.config(text="Window not found" if self.manager.windowhandle == None else f"Return to\n{self.manager.fname}", state="disabled" if self.manager.windowhandle == None else "active")
 		
 		def init_thirdstage(self):
@@ -321,7 +320,10 @@ try:
 						if b == 1:
 							break
 					ioread = ioreadnew
-					time.sleep(self.loadinginterval + t - time.time())
+					try:
+						time.sleep(self.loadinginterval + t - time.time())
+					except:
+						time.sleep(self.loadinginterval)
 			except (psutil.NoSuchProcess, ProcessLookupError):
 				self.gameclosed()
 
@@ -395,50 +397,64 @@ try:
 				except pywintypes.error as e: # TODO: Do something else here
 					if main.debug == 1:
 						print(f"Exception in {self.pid} {self.pname} inbackground window actions : {e}")
-			if self.detectloading == 1:
-				i = 0
-				def absolutelydectectloadiong():
-					return self.state == "background" and self.detectloading == 1 and self.script == 1
-				while self.loadingafterchecks >= i:
-					ii = 0
-					while (ii * self.loadinginterval) / self.loadingtimeout < i**2 and absolutelydectectloadiong(): # Waiting for aftercheck time
-						time.sleep(self.loadinginterval)
-						if self.state != "background" or self.script == 0:
-							break
-						ii += 1
-					if absolutelydectectloadiong():
-						self.unsuspend()
-						self.gui.lsdbutton.config(text="Checking for\nloading screen")
-						s = 0
-						ss = 0
-						t = time.time()
-						ioread = psutil.Process(self.pid).io_counters()[2]
-						time.sleep(self.loadinginterval + t - time.time())
-						while s * self.loadinginterval < self.loadingtimeout and absolutelydectectloadiong():
+			def absolutelydectectloadiong():
+				return self.state == "background" and self.detectloading == 1 and self.script == 1
+			def gracedone():
+				return time.time()-self.inittime > self.graceperiod and time.time()-scriptstart > self.graceperiod
+			if absolutelydectectloadiong():
+				if gracedone():
+					i = 0
+					while self.loadingafterchecks >= i:
+						ii = 0
+						while (ii * self.loadinginterval) / self.loadingtimeout < i**2 and absolutelydectectloadiong(): # Waiting for aftercheck time
+							time.sleep(self.loadinginterval)
+							if self.state != "background" or self.script == 0:
+								break
+							ii += 1
+						if absolutelydectectloadiong():
+							self.unsuspend()
+							self.gui.lsdbutton.config(text="Checking for\nloading screen")
+							s = 0
+							ss = 0
 							t = time.time()
-							ioreadnew = psutil.Process(self.pid).io_counters()[2]
-							if main.iodebug == 1:
-								print(ioreadnew - ioread)
-							if ioreadnew - ioread <= self.loadingthreshold:
-								s += 1
-							else:
-								self.gui.lsdbutton.config(text="Waiting for\nloading screen")
-								s = 0
-								ss += 1
-								i = 0
-							if ss * self.loadinginterval > 60:
-								threading.Thread(target=self.adjustloadingthreashold, name=f"{self.pname} loading threshold adjuster", daemon=1).start()
-							ioread = ioreadnew
+							ioread = psutil.Process(self.pid).io_counters()[2]
 							time.sleep(self.loadinginterval + t - time.time())
-					else:
-						break
-					if absolutelydectectloadiong() and time.time()-self.inittime > self.graceperiod and time.time()-scriptstart > self.graceperiod:
-						win32gui.ShowWindow(self.windowhandle, win32con.SW_MINIMIZE)
-						self.suspend()
+							while s * self.loadinginterval < self.loadingtimeout and absolutelydectectloadiong():
+								t = time.time()
+								ioreadnew = psutil.Process(self.pid).io_counters()[2]
+								if main.iodebug == 1:
+									print(ioreadnew - ioread)
+								if ioreadnew - ioread <= self.loadingthreshold:
+									s += 1
+								else:
+									self.gui.lsdbutton.config(text="Waiting for\nloading screen")
+									s = 0
+									ss += 1
+									i = 0
+								if ss * self.loadinginterval > 60:
+									threading.Thread(target=self.adjustloadingthreashold, name=f"{self.pname} loading threshold adjuster", daemon=1).start()
+								ioread = ioreadnew
+								try:
+									time.sleep(self.loadinginterval + t - time.time())
+								except:
+									time.sleep(self.loadinginterval)
+						else:
+							break
+						if absolutelydectectloadiong():
+							win32gui.ShowWindow(self.windowhandle, win32con.SW_MINIMIZE)
+							self.suspend()
+							self.gui.lsdbutton.config(text="Loading Detection\nActive")
+						else:
+							break
+						i += 1
+				else:
+					self.unsuspend()
+					self.gui.lsdbutton.config(text="Waiting for\ngrace period")
+					while not gracedone():
+						time.sleep(self.loadinginterval)
+					if absolutelydectectloadiong():
 						self.gui.lsdbutton.config(text="Loading Detection\nActive")
-					else:
-						break
-					i += 1
+						self.inbackground()
 			elif self.suspended != 1:
 				self.suspend()
 
@@ -478,32 +494,30 @@ try:
 			# self.gui.returnbutton.config(text=f"{self.pname}\nin focus")
 
 		def kill(self):
-			if askokcancel(title=f"Kill {self.pname}?", message=f"Killing {self.pname} ({self.pid}) will result in loss of unsaved data."):
+			if askokcancel(title=f"Kill {self.pname} ({self.pid})?", message=f"Killing {self.pname} ({self.pid}) will result in loss of unsaved data."):
 				if self.muted == 1 and self.managevolume == 1:
 					self.unmute()
 				subprocess.run(["taskkill", "/PID", f"{self.pid}", "/T", "/F"])
-				self.gameclosed()
+				threading.Thread(target=self.gameclosed, name=f"{self.pid} {self.pname} gameclosed thread", daemon=1).start()
 
 		def gameclosed(self):
 			if self.safelyclosed == 0:
+				self.active = 0
+				self.script = 0
 				if main.debug == 1:
 					print(f"{self.pid} {self.pname} : gameclosed")
 				try:
 					self.unsuspend()
 				except:
 					pass
-				if main.debug == 1:
-					print(f"{self.pid} {self.pname} : gameclosed")
-				self.active = 0
-				self.script = 0
 				for widget in [self.gui.returnbutton, self.gui.suspendbutton, self.gui.lsdbutton, self.gui.scriptbutton]:
 					widget.config(state="disabled")
 				self.gui.label.config(text="Window closing")
-				for i in range(3,0,-1):																							# BUG: Why doesn't this work??
+				for i in range(3,0,-1):
 					self.gui.returnbutton.config(text=f"Window closing\nin {i} sec")
 					time.sleep(1)
 				self.gui.destroy()
-				self. safelyclosed = 1
+				self.safelyclosed = 1
 
 		def safeexit(self):
 			self.script = 0
