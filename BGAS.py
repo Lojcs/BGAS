@@ -1,6 +1,9 @@
 # BGAS Copyright (C) 2022  Lojcs
 # You should have received a copy of the GNU General Public License along with this program.  If not, see https://www.gnu.org/licenses.
 
+# BUG: suspend, lsd and scipt buttons freeze the scipt if you press them in a period after script launches, the game was running already and you don't press other buttons first. (No error message)
+# TODO: Make lsd button a fixed size.
+
 # BUG: L252: popen method - some running proccesses are seen as unknown + some suspended processes are seen as running, psutil method - suspended processes are seen as running
 
 # TODO: Option to mute instead of suspend
@@ -24,7 +27,7 @@
 
 # BUG: Returning to game doesn't work reliably for sekiro
 
-version = "2.1.0"
+version = "2.2.a1"
 print("Initialising")
 try:
 	import win32gui, pywinauto, psutil
@@ -39,7 +42,7 @@ from tkinter.messagebox import askokcancel, showerror
 try:
 	class Interfaces:
 		def __init__(self):
-			self.debug = 0
+			self.debug = 1
 			self.iodebug = 0
 			self.script = 1
 			self.climode = 0
@@ -132,9 +135,9 @@ try:
 			self.manager = manager
 			super().__init__()
 			self.title(f"{self.manager.fname} Suspender Initilasing")
-			self.geometry("250x350")
+			# self.geometry("250x350")
 			self.label = ttk.Label(self, text = f"{self.manager.fname}", justify="center", font=("TkDefaultFont", 20))
-			self.resizable(0,0)
+			# self.resizable(0,0)
 			self.returnbutton = ttk.Button(self, text="Searching for\ngame window", style="main.TButton", command=lambda: threading.Thread(target=self.manager.returntogame, daemon=1).start(), state="disabled")
 			self.suspendbutton = ttk.Button(self, text="Initialising", style="red.TButton", command=self.suspendtoggle, state="disabled")
 			self.lsdbutton = ttk.Button(self, text="Initialising", style="red.TButton", command=self.lsdtoggle, state="disabled")
@@ -146,12 +149,20 @@ try:
 			self.lsdbutton.bind("<Return>", self.lsdbuttonpress)
 			self.scriptbutton.bind("<Return>", self.scriptbuttonpress)
 			self.killbutton.bind("<Return>", self.killbuttonpress)
-			self.label.pack()
-			self.returnbutton.pack()
-			self.suspendbutton.pack() # TODO: Use grid to put button next to each other
-			self.lsdbutton.pack()
-			self.scriptbutton.pack()
-			self.killbutton.pack()
+			self.columnconfigure(1, weight=1)
+			self.columnconfigure(2, weight=1)
+			self.rowconfigure(1, weight=1)
+			self.rowconfigure(2, weight=2)
+			self.rowconfigure(3, weight=2)
+			self.rowconfigure(4, weight=2)
+			self.rowconfigure(5, weight=1)
+			self.label.grid(column=1, row=1, columnspan=2, sticky=tkinter.EW)
+			self.label.config(justify="center")
+			self.returnbutton.grid(column=1, row=2, columnspan=2, sticky=tkinter.EW)
+			self.suspendbutton.grid(column=1, row=3, sticky=tkinter.EW)
+			self.lsdbutton.grid(column=1, row=4, sticky=tkinter.EW)
+			self.scriptbutton.grid(column=2, row=4, sticky=tkinter.EW)
+			self.killbutton.grid(column=1, row=5, columnspan=2, sticky=tkinter.EW)
 			self.returnbutton.focus_set()
 			self.protocol("WM_DELETE_WINDOW", self.closebuttonpressed)
 			self.handle = win32gui.GetParent(self.winfo_id())
